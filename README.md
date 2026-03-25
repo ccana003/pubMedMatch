@@ -47,7 +47,7 @@ After enabling the module for a project, configure these project settings:
 ## Running PubMed Sync
 
 1. Open your REDCap project and go to **Project Setup**.
-2. Locate the **CorePubMatch** panel.
+2. Locate the **CorePubMatch** panel, or open **External Modules** and click **Configure** for CorePubMatch.
 3. Click **Run PubMed Sync**.
 4. Status messages will update:
    - `Running...`

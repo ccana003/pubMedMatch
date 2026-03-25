@@ -21,7 +21,7 @@ class CorePubMatch extends AbstractExternalModule
      */
     public function redcap_every_page_top($project_id = null): void
     {
-        if (empty($project_id) || !$this->isProjectSetupPage()) {
+        if (empty($project_id)) {
             return;
         }
 
@@ -38,6 +38,13 @@ class CorePubMatch extends AbstractExternalModule
 window.CorePubMatch = window.CorePubMatch || {};
 window.CorePubMatch.runUrl = '{$runUrl}';
 </script>
+HTML;
+
+        if (!$this->isProjectSetupPage()) {
+            return;
+        }
+
+        echo <<<HTML
 <div id="core-pubmatch-container" style="margin:15px 0;padding:12px;border:1px solid #d9d9d9;background:#fafafa;">
     <h4 style="margin-top:0;">CorePubMatch</h4>
     <button id="core-pubmatch-run" type="button" class="btn btn-primary">Run PubMed Sync</button>
