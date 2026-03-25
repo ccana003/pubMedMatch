@@ -29,26 +29,24 @@ class CorePubMatch extends AbstractExternalModule
             return;
         }
 
-        $runUrl = htmlspecialchars($this->getUrl('pages/run_pubmed.php') . '&project_id=' . (int) $project_id, ENT_QUOTES);
-
-        $this->includeJs('js/pubmed.js');
-
-        echo <<<HTML
-<script>
-window.CorePubMatch = window.CorePubMatch || {};
-window.CorePubMatch.runUrl = '{$runUrl}';
-</script>
-HTML;
-
         if (!$this->isProjectSetupPage()) {
             return;
         }
 
+        $runUrl = htmlspecialchars($this->getUrl('pages/run_pubmed.php') . '&project_id=' . (int) $project_id, ENT_QUOTES);
+
+        $status = trim((string) ($_GET['core_pubmatch_status'] ?? 'Idle.'));
+        $statusType = trim((string) ($_GET['core_pubmatch_status_type'] ?? 'info'));
+        $statusColor = ($statusType === 'error') ? '#b00020' : '#555';
+        $status = htmlspecialchars($status, ENT_QUOTES);
+
         echo <<<HTML
 <div id="core-pubmatch-container" style="margin:15px 0;padding:12px;border:1px solid #d9d9d9;background:#fafafa;">
     <h4 style="margin-top:0;">CorePubMatch</h4>
-    <button id="core-pubmatch-run" type="button" class="btn btn-primary">Run PubMed Sync</button>
-    <span id="core-pubmatch-status" style="margin-left:10px;color:#555;">Idle.</span>
+    <form method="post" action="{$runUrl}" style="display:inline;">
+        <button id="core-pubmatch-run" type="submit" class="btn btn-primary">Run PubMed Sync</button>
+    </form>
+    <span id="core-pubmatch-status" style="margin-left:10px;color:{$statusColor};">{$status}</span>
 </div>
 HTML;
     }

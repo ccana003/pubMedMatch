@@ -4,7 +4,7 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
 
 ## Features
 
-- Manual, button-driven PubMed sync (no cron required).
+- Manual, button-driven PubMed sync (no cron required, no custom JavaScript required).
 - Pulls PMIDs from PubMed by investigator and publication date range.
 - Deduplicates PMIDs across investigators.
 - Skips PMIDs already present in REDCap.
@@ -49,8 +49,7 @@ After enabling the module for a project, configure these project settings:
 1. Open your REDCap project and go to **Project Setup**.
 2. Locate the **CorePubMatch** panel, or open **External Modules** and click **Configure** for CorePubMatch.
 3. Click **Run PubMed Sync**.
-4. Status messages will update:
-   - `Running...`
+4. The page reloads back to Project Setup with a status message:
    - `Done. X new records (Y total found).`
    - `Error: ...` (if an issue occurs)
 
