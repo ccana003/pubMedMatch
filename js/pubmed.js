@@ -26,7 +26,21 @@
                 throw new Error(payload.error || 'PubMed sync failed.');
             }
 
-            updateStatus(status, 'Done. ' + payload.new_records + ' new records (' + payload.total_found + ' total found).', false);
+            var message = 'Done. ' + payload.new_records + ' new records (' + payload.total_found + ' total found).';
+
+            if (typeof payload.prepared_records === 'number' && payload.prepared_records > payload.new_records) {
+                message += ' Prepared ' + payload.prepared_records + '; saved ' + payload.new_records + '.';
+            }
+
+            if (payload.debug && payload.debug.error_stage && payload.debug.fetch_error) {
+                message += ' Fetch issue (' + payload.debug.error_stage + '): ' + payload.debug.fetch_error;
+            }
+
+            if (payload.debug && Array.isArray(payload.debug.save_errors) && payload.debug.save_errors.length > 0) {
+                message += ' Save errors: ' + payload.debug.save_errors.join(' | ');
+            }
+
+            updateStatus(status, message, false);
         } catch (error) {
             updateStatus(status, 'Error: ' + error.message, true);
         } finally {

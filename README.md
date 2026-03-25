@@ -51,6 +51,10 @@ After enabling the module for a project, configure these project settings:
 3. Click **Run PubMed Sync**.
 4. The page reloads back to Project Setup with a status message:
    - `Done. X new records (Y total found).`
+   - If there are write or fetch issues, status includes diagnostics such as:
+     - `Prepared P; saved X.`
+     - `Fetch issue (efetch_http|efetch_xml_parse): ...`
+     - `Save errors: ...`
    - `Error: ...` (if an issue occurs)
 
 ## Example Query Behavior
@@ -74,6 +78,9 @@ The module then:
 3. Removes PMIDs already in REDCap.
 4. Fetches metadata via PubMed EFetch.
 5. Inserts only new records.
+
+If EFetch GET requests fail in your hosting environment, the module automatically retries with POST.
+If EFetch XML parsing fails, the module falls back to ESummary JSON metadata so records can still be inserted.
 
 ## Security Model
 
