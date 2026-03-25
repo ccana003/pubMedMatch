@@ -215,6 +215,16 @@ HTML;
             }
 
             $summaryFallback = $this->fetchSummaryDetails($pmids);
+            if (empty($summaryFallback['records'])) {
+                // Some environments return incomplete ESummary payloads for batches; retry per PMID.
+                foreach ($pmids as $pmid) {
+                    $single = $this->fetchSummaryDetails([$pmid]);
+                    if (!empty($single['records'])) {
+                        $summaryFallback['records'] = array_merge($summaryFallback['records'], $single['records']);
+                    }
+                }
+            }
+
             if (!empty($summaryFallback['records'])) {
                 return [
                     'records' => $summaryFallback['records'],
@@ -327,6 +337,16 @@ HTML;
         $records = [];
         $result = $decoded['result'];
         $uids = isset($result['uids']) && is_array($result['uids']) ? $result['uids'] : [];
+        if (empty($uids)) {
+            foreach ($result as $key => $value) {
+                if ($key === 'uids') {
+                    continue;
+                }
+                if (is_array($value)) {
+                    $uids[] = (string) $key;
+                }
+            }
+        }
 
         foreach ($uids as $uid) {
             $entry = $result[$uid] ?? null;
