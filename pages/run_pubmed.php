@@ -6,10 +6,24 @@
  * @var \UniversityofMiami\CorePubMatch\CorePubMatch $module
  */
 
-header('Content-Type: application/json');
+$projectId = isset($_GET['project_id']) ? (int) $_GET['project_id'] : 0;
+$wantsJson = strpos((string) ($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json') !== false;
+
+$respondJson = static function (int $status, array $payload): void {
+    http_response_code($status);
+    header('Content-Type: application/json');
+    echo json_encode($payload);
+};
+
+$redirectToProjectSetup = static function (int $projectId, string $message, string $type = 'info'): void {
+    $url = APP_PATH_WEBROOT . 'ProjectSetup/index.php?pid=' . $projectId
+        . '&core_pubmatch_status=' . rawurlencode($message)
+        . '&core_pubmatch_status_type=' . rawurlencode($type);
+
+    header('Location: ' . $url);
+};
 
 try {
-    $projectId = isset($_GET['project_id']) ? (int) $_GET['project_id'] : 0;
     if ($projectId < 1) {
         throw new RuntimeException('Invalid project_id.');
     }
@@ -19,22 +33,33 @@ try {
     }
 
     if (!$module->canRunSync($projectId)) {
-        http_response_code(403);
         throw new RuntimeException('You do not have permission to run PubMed sync.');
     }
 
     $result = $module->runPubMedIngestionWithResult($projectId);
 
-    echo json_encode([
-        'total_found' => (int) ($result['total_found'] ?? 0),
-        'new_records' => (int) ($result['new_records'] ?? 0),
-    ]);
-} catch (Throwable $e) {
-    if (http_response_code() < 400) {
-        http_response_code(400);
+    $totalFound = (int) ($result['total_found'] ?? 0);
+    $newRecords = (int) ($result['new_records'] ?? 0);
+    $statusMessage = "Done. {$newRecords} new records ({$totalFound} total found).";
+
+    if ($wantsJson) {
+        $respondJson(200, [
+            'total_found' => $totalFound,
+            'new_records' => $newRecords,
+        ]);
+        return;
     }
 
-    echo json_encode([
-        'error' => $e->getMessage(),
-    ]);
+    $redirectToProjectSetup($projectId, $statusMessage, 'info');
+    return;
+} catch (Throwable $e) {
+    if ($wantsJson) {
+        $respondJson(400, [
+            'error' => $e->getMessage(),
+        ]);
+        return;
+    }
+
+    $redirectToProjectSetup($projectId, 'Error: ' . $e->getMessage(), 'error');
+    return;
 }
