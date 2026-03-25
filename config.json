@@ -1,0 +1,41 @@
+{
+  "name": "CorePubMatch",
+  "namespace": "UniversityofMiami\\CorePubMatch",
+  "description": "Project-level PubMed matching and adjudication tool",
+  "documentation": "README.md",
+  "authors": [
+    {
+      "name": "Carlos A. Canales",
+      "email": "ccanales2@miami.edu",
+      "institution": "University of Miami"
+    }
+  ],
+  "permissions": [
+    "redcap_every_page_top"
+  ],
+  "project-settings": [
+    {
+      "key": "investigator_names",
+      "name": "Investigator names",
+      "type": "textarea",
+      "required": true
+    },
+    {
+      "key": "start_date",
+      "name": "Start date (YYYY/MM/DD)",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "end_date",
+      "name": "End date (YYYY/MM/DD)",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "enable_cron",
+      "name": "Enable cron (optional for future use)",
+      "type": "checkbox"
+    }
+  ]
+}
