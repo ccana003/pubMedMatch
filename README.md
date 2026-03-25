@@ -80,6 +80,7 @@ The module then:
 5. Inserts only new records.
 
 If EFetch GET requests fail in your hosting environment, the module automatically retries with POST.
+If EFetch XML parsing fails, the module falls back to ESummary JSON metadata so records can still be inserted.
 
 ## Security Model
 

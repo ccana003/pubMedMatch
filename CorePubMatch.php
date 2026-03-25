@@ -15,6 +15,7 @@ class CorePubMatch extends AbstractExternalModule
 {
     private const ESEARCH_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi';
     private const EFETCH_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi';
+    private const ESUMMARY_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi';
 
     /**
      * Inject a Run PubMed Sync button on Project Setup.
@@ -213,6 +214,15 @@ HTML;
                 }
             }
 
+            $summaryFallback = $this->fetchSummaryDetails($pmids);
+            if (!empty($summaryFallback['records'])) {
+                return [
+                    'records' => $summaryFallback['records'],
+                    'error' => 'EFetch XML parse failed; used ESummary fallback for metadata.',
+                    'error_stage' => 'esummary_fallback',
+                ];
+            }
+
             return [
                 'records' => [],
                 'error' => empty($messages)
@@ -281,6 +291,82 @@ HTML;
             'records' => $records,
             'error' => null,
             'error_stage' => null,
+        ];
+    }
+
+    /**
+     * Fallback metadata retrieval using ESummary JSON.
+     */
+    private function fetchSummaryDetails(array $pmids): array
+    {
+        $query = [
+            'db' => 'pubmed',
+            'retmode' => 'json',
+            'id' => implode(',', $pmids),
+        ];
+
+        $url = self::ESUMMARY_URL . '?' . http_build_query($query);
+        $response = $this->httpRequest($url, 'GET');
+        if ($response['body'] === null) {
+            $response = $this->httpRequest(self::ESUMMARY_URL, 'POST', $query);
+        }
+
+        if ($response['body'] === null) {
+            return [
+                'records' => [],
+            ];
+        }
+
+        $decoded = json_decode($response['body'], true);
+        if (!is_array($decoded) || !isset($decoded['result']) || !is_array($decoded['result'])) {
+            return [
+                'records' => [],
+            ];
+        }
+
+        $records = [];
+        $result = $decoded['result'];
+        $uids = isset($result['uids']) && is_array($result['uids']) ? $result['uids'] : [];
+
+        foreach ($uids as $uid) {
+            $entry = $result[$uid] ?? null;
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $pmid = trim((string) ($entry['uid'] ?? $uid));
+            if ($pmid === '') {
+                continue;
+            }
+
+            $authors = [];
+            $entryAuthors = $entry['authors'] ?? [];
+            if (is_array($entryAuthors)) {
+                foreach ($entryAuthors as $author) {
+                    if (is_array($author) && !empty($author['name'])) {
+                        $authors[] = trim((string) $author['name']);
+                    }
+                }
+            }
+
+            $pubYear = '';
+            $pubDate = trim((string) ($entry['pubdate'] ?? ''));
+            if ($pubDate !== '' && preg_match('/\b(\d{4})\b/', $pubDate, $matches)) {
+                $pubYear = $matches[1];
+            }
+
+            $records[] = [
+                'pmid' => $pmid,
+                'title' => trim((string) ($entry['title'] ?? '')),
+                'abstract' => '',
+                'authors' => implode('; ', $authors),
+                'journal' => trim((string) ($entry['fulljournalname'] ?? $entry['source'] ?? '')),
+                'pub_year' => $pubYear,
+            ];
+        }
+
+        return [
+            'records' => $records,
         ];
     }
 
