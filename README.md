@@ -79,6 +79,8 @@ The module then:
 4. Fetches metadata via PubMed EFetch.
 5. Inserts only new records.
 
+If EFetch GET requests fail in your hosting environment, the module automatically retries with POST.
+
 ## Security Model
 
 Manual sync is restricted to users with one of the following:

@@ -146,12 +146,12 @@ HTML;
             'term' => $query,
         ]);
 
-        $response = $this->httpGet($url);
-        if ($response === null) {
+        $response = $this->httpRequest($url, 'GET');
+        if ($response['body'] === null) {
             return [];
         }
 
-        $decoded = json_decode($response, true);
+        $decoded = json_decode($response['body'], true);
         if (!is_array($decoded) || !isset($decoded['esearchresult']['idlist'])) {
             return [];
         }
@@ -173,17 +173,28 @@ HTML;
             ];
         }
 
-        $url = self::EFETCH_URL . '?' . http_build_query([
+        $query = [
             'db' => 'pubmed',
             'retmode' => 'xml',
             'id' => implode(',', $pmids),
-        ]);
+        ];
 
-        $xmlString = $this->httpGet($url);
+        // Try GET first, then POST fallback for environments that reject long querystrings.
+        $getUrl = self::EFETCH_URL . '?' . http_build_query($query);
+        $fetchResponse = $this->httpRequest($getUrl, 'GET');
+
+        if ($fetchResponse['body'] === null) {
+            $fetchResponse = $this->httpRequest(self::EFETCH_URL, 'POST', $query);
+        }
+
+        $xmlString = $fetchResponse['body'];
         if ($xmlString === null) {
+            $status = $fetchResponse['status_code'] !== null ? ' (HTTP ' . $fetchResponse['status_code'] . ')' : '';
+            $detail = $fetchResponse['error'] !== null ? ' ' . $fetchResponse['error'] : '';
+
             return [
                 'records' => [],
-                'error' => 'Unable to fetch publication details from PubMed EFetch.',
+                'error' => 'Unable to fetch publication details from PubMed EFetch.' . $status . $detail,
                 'error_stage' => 'efetch_http',
             ];
         }
@@ -446,19 +457,58 @@ HTML;
     /**
      * Lightweight GET helper.
      */
-    private function httpGet(string $url): ?string
+    private function httpRequest(string $url, string $method = 'GET', array $data = []): array
     {
+        $method = strtoupper($method);
+        $headers = "Accept: */*\r\nUser-Agent: CorePubMatch-REDCap-EM\r\n";
+        $content = null;
+
+        if ($method === 'POST') {
+            $content = http_build_query($data);
+            $headers .= "Content-Type: application/x-www-form-urlencoded\r\n";
+        }
+
         $context = stream_context_create([
             'http' => [
-                'method' => 'GET',
+                'method' => $method,
                 'timeout' => 30,
-                'header' => "Accept: */*\r\nUser-Agent: CorePubMatch-REDCap-EM\r\n",
+                'ignore_errors' => true,
+                'header' => $headers,
+                'content' => $content,
             ],
         ]);
 
         $response = @file_get_contents($url, false, $context);
+        $httpHeaders = isset($http_response_header) && is_array($http_response_header) ? $http_response_header : [];
+        $statusCode = $this->extractHttpStatusCode($httpHeaders);
+        $error = null;
 
-        return $response === false ? null : $response;
+        if ($response === false) {
+            $error = error_get_last()['message'] ?? null;
+        }
+
+        return [
+            'body' => $response === false ? null : $response,
+            'status_code' => $statusCode,
+            'error' => $error,
+        ];
+    }
+
+    /**
+     * Parse HTTP status from file_get_contents response headers.
+     */
+    private function extractHttpStatusCode(array $headers): ?int
+    {
+        if (empty($headers)) {
+            return null;
+        }
+
+        $first = (string) $headers[0];
+        if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $first, $matches)) {
+            return (int) $matches[1];
+        }
+
+        return null;
     }
 
     /**
