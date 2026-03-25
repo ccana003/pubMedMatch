@@ -357,7 +357,7 @@ HTML;
 
             $records[] = [
                 'pmid' => $pmid,
-                'title' => trim((string) ($entry['title'] ?? '')),
+                'title' => trim((string) ($entry['title'] ?? $entry['sorttitle'] ?? '')),
                 'abstract' => '',
                 'authors' => implode('; ', $authors),
                 'journal' => trim((string) ($entry['fulljournalname'] ?? $entry['source'] ?? '')),
@@ -414,7 +414,8 @@ HTML;
             ];
         }
 
-        $result = REDCap::saveData($project_id, 'array', $payload);
+        // Use JSON payload to keep row-oriented saves consistent across REDCap versions.
+        $result = REDCap::saveData($project_id, 'json', json_encode($payload));
 
         $errors = [];
         $savedCount = count($payload);
