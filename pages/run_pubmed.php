@@ -40,12 +40,29 @@ try {
 
     $totalFound = (int) ($result['total_found'] ?? 0);
     $newRecords = (int) ($result['new_records'] ?? 0);
+    $preparedRecords = (int) ($result['prepared_records'] ?? $newRecords);
+    $debug = (array) ($result['debug'] ?? []);
+    $saveErrors = (array) ($debug['save_errors'] ?? []);
+
     $statusMessage = "Done. {$newRecords} new records ({$totalFound} total found).";
+    if ($preparedRecords > $newRecords) {
+        $statusMessage .= " Prepared {$preparedRecords}; saved {$newRecords}.";
+    }
+
+    if (!empty($saveErrors)) {
+        $statusMessage .= ' Save errors: ' . implode(' | ', array_map('strval', $saveErrors));
+    }
+
+    if (!empty($debug['error_stage']) && !empty($debug['fetch_error'])) {
+        $statusMessage .= ' Fetch issue (' . $debug['error_stage'] . '): ' . (string) $debug['fetch_error'];
+    }
 
     if ($wantsJson) {
         $respondJson(200, [
             'total_found' => $totalFound,
             'new_records' => $newRecords,
+            'prepared_records' => $preparedRecords,
+            'debug' => $debug,
         ]);
         return;
     }

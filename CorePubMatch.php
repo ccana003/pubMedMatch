@@ -69,20 +69,56 @@ HTML;
             throw new \RuntimeException('No investigator names were found in module settings.');
         }
 
+        $debug = [
+            'investigator_count' => count($investigators),
+            'pmids_found_total' => 0,
+            'pmids_after_dedup' => 0,
+            'existing_pmids_count' => 0,
+            'new_pmids_count' => 0,
+            'fetched_records_count' => 0,
+            'prepared_records_count' => 0,
+            'saved_records_count' => 0,
+            'error_stage' => null,
+            'save_errors' => [],
+            'fetch_error' => null,
+        ];
+
         $allPmids = [];
         foreach ($investigators as $name) {
             $query = sprintf('%s[Author] AND ("%s"[Date - Publication] : "%s"[Date - Publication])', $name, $startDate, $endDate);
             $allPmids = array_merge($allPmids, $this->searchPubMed($query));
         }
 
+        $debug['pmids_found_total'] = count($allPmids);
+
         $uniquePmids = array_values(array_unique($allPmids));
+        $debug['pmids_after_dedup'] = count($uniquePmids);
+
         $existingPmids = $this->getExistingPmids($project_id);
+        $debug['existing_pmids_count'] = count($existingPmids);
+
         $newPmids = array_values(array_diff($uniquePmids, $existingPmids));
+        $debug['new_pmids_count'] = count($newPmids);
 
         $records = [];
         if (!empty($newPmids)) {
-            $records = $this->fetchDetails($newPmids);
-            $this->saveRecords($project_id, $records);
+            $fetchResult = $this->fetchDetails($newPmids);
+            $records = $fetchResult['records'];
+
+            $debug['fetched_records_count'] = count($records);
+            $debug['fetch_error'] = $fetchResult['error'];
+            if ($fetchResult['error'] !== null) {
+                $debug['error_stage'] = $fetchResult['error_stage'];
+            }
+
+            $saveResult = $this->saveRecords($project_id, $records);
+            $debug['prepared_records_count'] = count($records);
+            $debug['saved_records_count'] = (int) ($saveResult['saved_count'] ?? 0);
+            $debug['save_errors'] = $saveResult['errors'] ?? [];
+
+            if (!empty($debug['save_errors']) && $debug['error_stage'] === null) {
+                $debug['error_stage'] = 'save_data';
+            }
         }
 
         // TODO: Add PI notification workflow.
@@ -92,7 +128,9 @@ HTML;
 
         return [
             'total_found' => count($uniquePmids),
-            'new_records' => count($records),
+            'new_records' => $debug['saved_records_count'],
+            'prepared_records' => count($records),
+            'debug' => $debug,
         ];
     }
 
@@ -128,7 +166,11 @@ HTML;
     {
         $pmids = array_values(array_unique(array_filter(array_map('trim', $pmids))));
         if (empty($pmids)) {
-            return [];
+            return [
+                'records' => [],
+                'error' => null,
+                'error_stage' => null,
+            ];
         }
 
         $url = self::EFETCH_URL . '?' . http_build_query([
@@ -139,13 +181,34 @@ HTML;
 
         $xmlString = $this->httpGet($url);
         if ($xmlString === null) {
-            return [];
+            return [
+                'records' => [],
+                'error' => 'Unable to fetch publication details from PubMed EFetch.',
+                'error_stage' => 'efetch_http',
+            ];
         }
 
         libxml_use_internal_errors(true);
         $xml = simplexml_load_string($xmlString);
         if ($xml === false || !isset($xml->PubmedArticle)) {
-            return [];
+            $errors = libxml_get_errors();
+            libxml_clear_errors();
+
+            $messages = [];
+            foreach ($errors as $error) {
+                $message = trim((string) $error->message);
+                if ($message !== '') {
+                    $messages[] = $message;
+                }
+            }
+
+            return [
+                'records' => [],
+                'error' => empty($messages)
+                    ? 'PubMed EFetch returned unexpected XML.'
+                    : 'PubMed EFetch XML parse error: ' . implode(' | ', $messages),
+                'error_stage' => 'efetch_xml_parse',
+            ];
         }
 
         $records = [];
@@ -203,7 +266,11 @@ HTML;
             ];
         }
 
-        return $records;
+        return [
+            'records' => $records,
+            'error' => null,
+            'error_stage' => null,
+        ];
     }
 
     /**
@@ -217,13 +284,7 @@ HTML;
             'fields' => ['pmid'],
         ]);
 
-        $pmids = [];
-        foreach ($data as $record) {
-            $value = trim((string) ($record['pmid'] ?? ''));
-            if ($value !== '') {
-                $pmids[] = $value;
-            }
-        }
+        $pmids = $this->extractPmidsFromData($data);
 
         return array_values(array_unique($pmids));
     }
@@ -234,7 +295,11 @@ HTML;
     public function saveRecords(int $project_id, array $records): array
     {
         if (empty($records)) {
-            return [];
+            return [
+                'saved_count' => 0,
+                'errors' => [],
+                'raw' => null,
+            ];
         }
 
         $payload = [];
@@ -252,7 +317,71 @@ HTML;
             ];
         }
 
-        return REDCap::saveData($project_id, 'array', $payload);
+        $result = REDCap::saveData($project_id, 'array', $payload);
+
+        $errors = [];
+        $savedCount = count($payload);
+
+        if (is_array($result)) {
+            $rawErrors = $result['errors'] ?? [];
+            if (is_string($rawErrors) && trim($rawErrors) !== '') {
+                $errors[] = trim($rawErrors);
+            } elseif (is_array($rawErrors)) {
+                foreach ($rawErrors as $error) {
+                    $message = trim((string) $error);
+                    if ($message !== '') {
+                        $errors[] = $message;
+                    }
+                }
+            }
+
+            if (isset($result['count']) && is_numeric($result['count'])) {
+                $savedCount = (int) $result['count'];
+            } elseif (isset($result['item_count']) && is_numeric($result['item_count'])) {
+                $savedCount = (int) $result['item_count'];
+            } elseif (isset($result['ids']) && is_array($result['ids'])) {
+                $savedCount = count($result['ids']);
+            } elseif (!empty($errors)) {
+                $savedCount = 0;
+            }
+        }
+
+        return [
+            'saved_count' => $savedCount,
+            'errors' => $errors,
+            'raw' => $result,
+        ];
+    }
+
+    /**
+     * Recursively extract PMID values from REDCap getData array structures.
+     */
+    private function extractPmidsFromData(array $data): array
+    {
+        $pmids = [];
+
+        $walk = static function ($value) use (&$walk, &$pmids): void {
+            if (!is_array($value)) {
+                return;
+            }
+
+            foreach ($value as $key => $nestedValue) {
+                if ($key === 'pmid' && !is_array($nestedValue)) {
+                    $pmid = trim((string) $nestedValue);
+                    if ($pmid !== '') {
+                        $pmids[] = $pmid;
+                    }
+                }
+
+                if (is_array($nestedValue)) {
+                    $walk($nestedValue);
+                }
+            }
+        };
+
+        $walk($data);
+
+        return $pmids;
     }
 
     /**
