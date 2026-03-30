@@ -176,11 +176,20 @@ HTML;
             $debug['notification_subject'] = $subjectTemplate;
             $debug['notification_intro'] = $introTemplate;
 
-            $piReviewLinkBase = $this->getPiReviewLinkBase($project_id);
+            $fieldMetadata = $this->getProjectFieldMetadata($project_id);
+            $publicationForm = isset($fieldMetadata['pmid'])
+                ? (string) ($fieldMetadata['pmid']['form_name'] ?? 'publications')
+                : 'publications';
+            $piReviewForm = isset($fieldMetadata['pi_name'])
+                ? (string) ($fieldMetadata['pi_name']['form_name'] ?? 'pi_review')
+                : 'pi_review';
+            $piReviewLinkBase = $this->getPiReviewLinkBase($project_id, $piReviewForm);
             $notifications = $this->collectAndSendNotifications(
                 $project_id,
                 $debug['notification_record_ids'],
                 $piReviewLinkBase,
+                $publicationForm,
+                $piReviewForm,
                 $subjectTemplate,
                 $introTemplate
             );
@@ -673,6 +682,8 @@ HTML;
         int $project_id,
         array $recordIds,
         string $piReviewLinkBase,
+        string $publicationForm,
+        string $piReviewForm,
         string $subjectTemplate,
         string $introTemplate
     ): array {
@@ -697,38 +708,40 @@ HTML;
             $piEmail = $investigatorEmail;
             $publicationRows = [];
 
-            foreach ($recordData as $key => $value) {
-                if ($key === 'repeat_instances' && is_array($value)) {
-                    foreach ($value as $eventId => $forms) {
-                        if (!is_array($forms) || !isset($forms['publications']) || !is_array($forms['publications'])) {
-                            continue;
-                        }
+            $repeatInstances = $this->extractRepeatInstancesFromRecordData($recordData);
+            foreach ($repeatInstances as $eventId => $forms) {
+                if (!isset($forms[$publicationForm]) || !is_array($forms[$publicationForm])) {
+                    continue;
+                }
 
-                        foreach ($forms['publications'] as $instance => $publicationRow) {
-                            if (!is_array($publicationRow)) {
-                                continue;
-                            }
+                $piReviewInstances = (isset($forms[$piReviewForm]) && is_array($forms[$piReviewForm]))
+                    ? $forms[$piReviewForm]
+                    : [];
 
-                            $instanceNo = (int) $instance;
-                            $rowPiName = trim((string) ($publicationRow['pi_name'] ?? $recordData['pi_name'] ?? $investigatorName));
-                            $rowPiEmail = strtolower(trim((string) ($publicationRow['pi_email'] ?? $recordData['pi_email'] ?? $investigatorEmail)));
-
-                            if ($rowPiName !== '') {
-                                $piName = $rowPiName;
-                            }
-                            if ($rowPiEmail !== '') {
-                                $piEmail = $rowPiEmail;
-                            }
-
-                            $publicationRows[] = [
-                                'title' => (string) ($publicationRow['title'] ?? ''),
-                                'authors' => (string) ($publicationRow['authors'] ?? ''),
-                                'journal' => (string) ($publicationRow['journal'] ?? ''),
-                                'pub_year' => (string) ($publicationRow['pub_year'] ?? ''),
-                                'review_link' => $this->buildPiReviewLink($piReviewLinkBase, (string) $recordId, $instanceNo),
-                            ];
-                        }
+                foreach ($forms[$publicationForm] as $instance => $publicationRow) {
+                    if (!is_array($publicationRow)) {
+                        continue;
                     }
+
+                    $instanceNo = (int) $instance;
+                    $piReviewRow = $piReviewInstances[$instanceNo] ?? $piReviewInstances[(string) $instanceNo] ?? [];
+                    $rowPiName = trim((string) ($piReviewRow['pi_name'] ?? $publicationRow['pi_name'] ?? $recordData['pi_name'] ?? $investigatorName));
+                    $rowPiEmail = strtolower(trim((string) ($piReviewRow['pi_email'] ?? $publicationRow['pi_email'] ?? $recordData['pi_email'] ?? $investigatorEmail)));
+
+                    if ($rowPiName !== '') {
+                        $piName = $rowPiName;
+                    }
+                    if ($rowPiEmail !== '') {
+                        $piEmail = $rowPiEmail;
+                    }
+
+                    $publicationRows[] = [
+                        'title' => (string) ($publicationRow['title'] ?? ''),
+                        'authors' => (string) ($publicationRow['authors'] ?? ''),
+                        'journal' => (string) ($publicationRow['journal'] ?? ''),
+                        'pub_year' => (string) ($publicationRow['pub_year'] ?? ''),
+                        'review_link' => $this->buildPiReviewLink($piReviewLinkBase, (string) $recordId, (string) $eventId, $piReviewForm, $instanceNo),
+                    ];
                 }
             }
 
@@ -770,7 +783,7 @@ HTML;
             $subject = str_replace('{{pi_name}}', $piName, $subjectTemplate);
             $intro = str_replace('{{pi_name}}', htmlspecialchars($piName, ENT_QUOTES), $introTemplate);
             $htmlBody = $intro . '<br><br>' . $this->buildConsolidatedPiEmailHtml($notification['publication_rows'], $piReviewLinkBase);
-            $sent = $this->sendConsolidatedPiEmail((string) $notification['pi_email'], $piName, $subject, $htmlBody);
+            $sendResult = $this->sendConsolidatedPiEmail((string) $notification['pi_email'], $piName, $subject, $htmlBody);
 
             $notifications[$index] = [
                 'record_id' => (string) ($notification['record_id'] ?? ''),
@@ -778,11 +791,31 @@ HTML;
                 'pi_name' => $piName,
                 'pi_email' => (string) ($notification['pi_email'] ?? ''),
                 'publication_count' => count($notification['publication_rows']),
-                'sent' => $sent,
+                'sent' => (bool) ($sendResult['sent'] ?? false),
+                'send_path' => (string) ($sendResult['path'] ?? ''),
+                'send_error' => (string) ($sendResult['error'] ?? ''),
             ];
         }
 
         return $notifications;
+    }
+
+    /**
+     * Extract repeating data structure for classic and longitudinal getData payloads.
+     */
+    private function extractRepeatInstancesFromRecordData(array $recordData): array
+    {
+        if (isset($recordData['repeat_instances']) && is_array($recordData['repeat_instances'])) {
+            return $recordData['repeat_instances'];
+        }
+
+        foreach ($recordData as $eventData) {
+            if (is_array($eventData) && isset($eventData['repeat_instances']) && is_array($eventData['repeat_instances'])) {
+                return $eventData['repeat_instances'];
+            }
+        }
+
+        return [];
     }
 
     /**
@@ -830,7 +863,7 @@ HTML;
     /**
      * Build PI review link for an explicit repeating instance.
      */
-    private function buildPiReviewLink(string $reviewLinkBase, string $recordId, int $instance): string
+    private function buildPiReviewLink(string $reviewLinkBase, string $recordId, string $eventId, string $piReviewForm, int $instance): string
     {
         $instance = max(1, $instance);
         if ($reviewLinkBase === '') {
@@ -838,20 +871,21 @@ HTML;
         }
 
         $separator = (strpos($reviewLinkBase, '?') !== false) ? '&' : '?';
-        return $reviewLinkBase
+            return $reviewLinkBase
             . $separator . 'record=' . rawurlencode($recordId)
-            . '&instrument=pi_review'
+            . '&instrument=' . rawurlencode($piReviewForm)
+            . '&event_id=' . rawurlencode($eventId)
             . '&instance=' . $instance;
     }
 
     /**
      * Resolve base survey link for pi_review form.
      */
-    private function getPiReviewLinkBase(int $project_id): string
+    private function getPiReviewLinkBase(int $project_id, string $piReviewForm): string
     {
         if (method_exists('REDCap', 'getSurveyLink')) {
             try {
-                $link = (string) REDCap::getSurveyLink('', 'pi_review', null, null, null, $project_id);
+                $link = (string) REDCap::getSurveyLink('', $piReviewForm, null, null, null, $project_id);
                 if ($link !== '') {
                     return $link;
                 }
@@ -866,11 +900,15 @@ HTML;
     /**
      * Send consolidated outbound notification email.
      */
-    private function sendConsolidatedPiEmail(string $toEmail, string $piName, string $subject, string $htmlBody): bool
+    private function sendConsolidatedPiEmail(string $toEmail, string $piName, string $subject, string $htmlBody): array
     {
         $toEmail = trim($toEmail);
         if ($toEmail === '' || filter_var($toEmail, FILTER_VALIDATE_EMAIL) === false) {
-            return false;
+            return [
+                'sent' => false,
+                'path' => 'validation',
+                'error' => 'Invalid recipient email.',
+            ];
         }
 
         $fromEmail = (defined('EMAIL_FROM') && is_string(EMAIL_FROM) && EMAIL_FROM !== '') ? EMAIL_FROM : 'no-reply@example.org';
@@ -885,14 +923,33 @@ HTML;
             $message->setBody($htmlBody);
             $message->set('isHtml', true);
 
-            return (bool) $message->send();
+            try {
+                if ((bool) $message->send()) {
+                    return [
+                        'sent' => true,
+                        'path' => 'Message',
+                        'error' => '',
+                    ];
+                }
+            } catch (\Throwable $e) {
+                // Fall through to REDCap::email fallback.
+            }
         }
 
         if (method_exists('REDCap', 'email')) {
-            return (bool) REDCap::email($toEmail, $fromEmail, $subject, $htmlBody, '', '', $fromName, true);
+            $sent = (bool) REDCap::email($toEmail, $fromEmail, $subject, $htmlBody, '', '', $fromName, true);
+            return [
+                'sent' => $sent,
+                'path' => 'REDCap::email',
+                'error' => $sent ? '' : 'REDCap::email returned false.',
+            ];
         }
 
-        return false;
+        return [
+            'sent' => false,
+            'path' => 'none',
+            'error' => 'No compatible email sender found.',
+        ];
     }
 
     /**
