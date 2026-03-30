@@ -881,10 +881,24 @@ HTML;
                 continue;
             }
 
-            foreach ($eventForms as $formName) {
-                $name = trim((string) $formName);
-                if ($name !== '') {
-                    $forms[$name] = true;
+            foreach ($eventForms as $formKey => $formValue) {
+                $candidates = [];
+
+                // Some REDCap versions return indexed form names; others return associative form_name => metadata/label.
+                if (is_string($formKey) && !is_numeric($formKey)) {
+                    $candidates[] = $formKey;
+                }
+                if ((is_int($formKey) || ctype_digit((string) $formKey)) && is_string($formValue) && trim($formValue) !== '') {
+                    $candidates[] = $formValue;
+                } elseif (is_array($formValue) && isset($formValue['form_name'])) {
+                    $candidates[] = (string) $formValue['form_name'];
+                }
+
+                foreach ($candidates as $candidate) {
+                    $name = trim((string) $candidate);
+                    if ($name !== '') {
+                        $forms[$name] = true;
+                    }
                 }
             }
         }
