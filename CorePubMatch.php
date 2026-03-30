@@ -494,7 +494,11 @@ HTML;
                 }
 
                 $fieldForm = (string) ($fieldMetadata[$redcapField]['form_name'] ?? '');
-                if ($fieldForm !== '' && isset($repeatingInstruments[$fieldForm])) {
+                $forceRepeat = in_array($redcapField, ['pi_name', 'pi_email'], true);
+                if ($forceRepeat && $fieldForm === '') {
+                    $fieldForm = 'pi_review';
+                }
+                if ($fieldForm !== '' && ($forceRepeat || isset($repeatingInstruments[$fieldForm]))) {
                     $repeatKey = $recordId . '|' . $fieldForm;
                     if (!isset($repeatRows[$repeatKey])) {
                         $repeatRows[$repeatKey] = [

@@ -55,7 +55,11 @@ try {
     }
 
     if (!empty($saveErrors)) {
-        $statusMessage .= ' Save errors: ' . implode(' | ', array_map('strval', $saveErrors));
+        $statusMessage .= ' Save errors: ' . count($saveErrors) . '.';
+        $firstError = trim((string) ($saveErrors[0] ?? ''));
+        if ($firstError !== '') {
+            $statusMessage .= ' First: ' . $firstError;
+        }
     }
 
     if (!empty($debug['error_stage']) && !empty($debug['fetch_error'])) {
