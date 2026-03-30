@@ -17,6 +17,10 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
   - `journal`
   - `pub_year`
   - `status` (default `0`)
+- Enriches verification contacts when possible:
+  - Extracts `NCT########` trial IDs from PubMed title/abstract/databank metadata.
+  - Looks up contact emails from ClinicalTrials.gov when NCT IDs are present.
+  - Falls back to corresponding-author email parsed from PubMed affiliations.
 
 ## Installation
 
@@ -103,6 +107,14 @@ This module expects these REDCap fields to exist in the target project:
 - `journal`
 - `pub_year`
 - `status`
+
+Optional fields for contact routing (if present) are auto-populated:
+
+- `verify_contact_name`
+- `verify_contact_email`
+- `verify_contact_source`
+- `verify_contact_confidence`
+- `verify_contact_nct_id`
 
 ## Future Extensions
 
