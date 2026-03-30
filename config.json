@@ -41,6 +41,21 @@
       "key": "enable_cron",
       "name": "Enable cron (optional for future use)",
       "type": "checkbox"
+    },
+    {
+      "key": "enable_notifications",
+      "name": "Enable outbound PI notifications",
+      "type": "checkbox"
+    },
+    {
+      "key": "email_subject_template",
+      "name": "Email subject template (optional, supports {{pi_name}})",
+      "type": "text"
+    },
+    {
+      "key": "email_intro_template",
+      "name": "Email intro template (optional HTML, supports {{pi_name}})",
+      "type": "textarea"
     }
   ]
 }

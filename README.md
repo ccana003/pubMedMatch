@@ -51,6 +51,9 @@ After enabling the module for a project, configure these project settings:
 - **End date** (`end_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
 - **Core name** (`core_name`, text): optional; used to prefill `core_name` on repeating `core_review` rows created per publication instance.
 - **Enable cron** (`enable_cron`, checkbox): optional future-use flag.
+- **Enable outbound PI notifications** (`enable_notifications`, checkbox): when checked, sends a single consolidated PI email after each sync run.
+- **Email subject template** (`email_subject_template`, text): optional. Supports `{{pi_name}}`. Defaults to `CorePubMatch publication review request`.
+- **Email intro template** (`email_intro_template`, textarea): optional HTML/text intro shown above the publication table. Supports `{{pi_name}}`.
 
 ## Running PubMed Sync
 
@@ -87,6 +90,7 @@ The module then:
 4. Fetches metadata via PubMed EFetch.
 5. Attaches matched PI metadata (`pi_name`, `pi_email`) from the configured investigator entry used to find each PMID.
 6. Groups publications by investigator and writes publication/review rows as repeating instances under one investigator-level `record_id`.
+7. If notifications are enabled, sends one outbound HTML email per PI containing all `publications`/`pi_review` repeating instances inserted in that sync run.
 
 If EFetch GET requests fail in your hosting environment, the module automatically retries with POST.
 If EFetch XML parsing fails, the module falls back to ESummary JSON metadata so records can still be inserted.
@@ -120,7 +124,7 @@ This module expects these REDCap fields to exist in the target project:
 Expected repeating setup for investigator-centric workflows:
 
 - `publications` should be configured as a repeating instrument (one instance per publication).
-- `pi_review` should be repeating if you want one PI review row per publication.
+- `pi_review` should be repeating if you want one PI review row per publication (required for per-instance review links in notification emails).
 - `core_review` should be repeating if you want `core_name` and reviewer context attached per publication instance.
 
 Optional fields for contact routing (if present) are auto-populated:
@@ -130,6 +134,27 @@ Optional fields for contact routing (if present) are auto-populated:
 - `verify_contact_source`
 - `verify_contact_confidence`
 - `verify_contact_nct_id`
+
+## Notification Workflow (One Email per PI)
+
+When `enable_notifications` is enabled, the module performs post-save aggregation after a sync run:
+
+1. Collects investigator-level `record_id` values touched in the current sync.
+2. Loads repeating `publications` rows for those records.
+3. Builds one HTML summary email per PI with:
+   - Title
+   - Authors
+   - Journal
+   - Publication year
+   - Per-instance `pi_review` survey link
+4. Deduplicates by PI email so each recipient receives only one email per run, even if multiple rows/records were written.
+
+To use this workflow:
+
+1. Ensure each investigator has a valid `pi_email` value (or mapped `investigator_email`) for delivery.
+2. Ensure `pi_review` is configured as a repeating survey instrument so links can target explicit instances.
+3. Enable `enable_notifications` in module settings.
+4. Optionally customize `email_subject_template` and `email_intro_template`.
 
 ## Future Extensions
 

@@ -5,6 +5,7 @@ namespace UniversityofMiami\CorePubMatch;
 use DateTime;
 use ExternalModules\AbstractExternalModule;
 use REDCap;
+use Message;
 
 /**
  * CorePubMatch
@@ -83,6 +84,11 @@ HTML;
             'error_stage' => null,
             'save_errors' => [],
             'fetch_error' => null,
+            'notification_enabled' => false,
+            'notification_subject' => null,
+            'notification_intro' => null,
+            'notification_record_ids' => [],
+            'notifications' => [],
         ];
 
         $allPmids = [];
@@ -147,16 +153,42 @@ HTML;
             $debug['prepared_records_count'] = count($records);
             $debug['saved_records_count'] = (int) ($saveResult['saved_count'] ?? 0);
             $debug['save_errors'] = $saveResult['errors'] ?? [];
+            $debug['notification_record_ids'] = array_values(array_unique($saveResult['investigator_record_ids'] ?? []));
 
             if (!empty($debug['save_errors']) && $debug['error_stage'] === null) {
                 $debug['error_stage'] = 'save_data';
             }
         }
 
-        // TODO: Add PI notification workflow.
+        $notificationsEnabled = $this->getProjectSetting('enable_notifications', $project_id) === true
+            || $this->getProjectSetting('enable_notifications', $project_id) === '1';
+        $debug['notification_enabled'] = $notificationsEnabled;
+
+        if ($notificationsEnabled && !empty($debug['notification_record_ids'])) {
+            $subjectTemplate = trim((string) $this->getProjectSetting('email_subject_template', $project_id));
+            if ($subjectTemplate === '') {
+                $subjectTemplate = 'CorePubMatch publication review request';
+            }
+            $introTemplate = trim((string) $this->getProjectSetting('email_intro_template', $project_id));
+            if ($introTemplate === '') {
+                $introTemplate = 'Dear {{pi_name}},<br><br>The following publication records were added in the latest CorePubMatch sync and are ready for your review.';
+            }
+            $debug['notification_subject'] = $subjectTemplate;
+            $debug['notification_intro'] = $introTemplate;
+
+            $piReviewLinkBase = $this->getPiReviewLinkBase($project_id);
+            $notifications = $this->collectAndSendNotifications(
+                $project_id,
+                $debug['notification_record_ids'],
+                $piReviewLinkBase,
+                $subjectTemplate,
+                $introTemplate
+            );
+            $debug['notifications'] = $notifications;
+        }
+
         // TODO: Add Core adjudication UI workflow.
         // TODO: Add scheduled cron execution path.
-        // TODO: Add outbound email batching.
 
         return [
             'total_found' => count($uniquePmids),
@@ -472,6 +504,7 @@ HTML;
         }
 
         $payload = [];
+        $investigatorRecordIds = [];
         $fieldMetadata = $this->getProjectFieldMetadata($project_id);
         $repeatingInstruments = $this->getRepeatingInstruments($project_id);
         $coreNameDefault = trim((string) $this->getProjectSetting('core_name', $project_id));
@@ -511,6 +544,7 @@ HTML;
 
         foreach ($grouped as $group) {
             $recordId = $this->generateInvestigatorRecordId($group['name'], $group['email']);
+            $investigatorRecordIds[] = $recordId;
             $baseRow = ['record_id' => $recordId];
 
             if (isset($fieldMetadata['investigator_name'])) {
@@ -628,7 +662,237 @@ HTML;
             'saved_count' => $savedCount,
             'errors' => $errors,
             'raw' => $result,
+            'investigator_record_ids' => array_values(array_unique($investigatorRecordIds)),
         ];
+    }
+
+    /**
+     * Load publication rows for saved records and send one consolidated email per PI.
+     */
+    private function collectAndSendNotifications(
+        int $project_id,
+        array $recordIds,
+        string $piReviewLinkBase,
+        string $subjectTemplate,
+        string $introTemplate
+    ): array {
+        $recordIds = array_values(array_unique(array_filter(array_map('strval', $recordIds))));
+        if (empty($recordIds)) {
+            return [];
+        }
+
+        $data = REDCap::getData([
+            'project_id' => $project_id,
+            'return_format' => 'array',
+            'records' => $recordIds,
+        ]);
+
+        $notifications = [];
+        $recipientToIndex = [];
+
+        foreach ($data as $recordId => $recordData) {
+            $investigatorName = trim((string) ($recordData['investigator_name'] ?? ''));
+            $investigatorEmail = strtolower(trim((string) ($recordData['investigator_email'] ?? '')));
+            $piName = $investigatorName;
+            $piEmail = $investigatorEmail;
+            $publicationRows = [];
+
+            foreach ($recordData as $key => $value) {
+                if ($key === 'repeat_instances' && is_array($value)) {
+                    foreach ($value as $eventId => $forms) {
+                        if (!is_array($forms) || !isset($forms['publications']) || !is_array($forms['publications'])) {
+                            continue;
+                        }
+
+                        foreach ($forms['publications'] as $instance => $publicationRow) {
+                            if (!is_array($publicationRow)) {
+                                continue;
+                            }
+
+                            $instanceNo = (int) $instance;
+                            $rowPiName = trim((string) ($publicationRow['pi_name'] ?? $recordData['pi_name'] ?? $investigatorName));
+                            $rowPiEmail = strtolower(trim((string) ($publicationRow['pi_email'] ?? $recordData['pi_email'] ?? $investigatorEmail)));
+
+                            if ($rowPiName !== '') {
+                                $piName = $rowPiName;
+                            }
+                            if ($rowPiEmail !== '') {
+                                $piEmail = $rowPiEmail;
+                            }
+
+                            $publicationRows[] = [
+                                'title' => (string) ($publicationRow['title'] ?? ''),
+                                'authors' => (string) ($publicationRow['authors'] ?? ''),
+                                'journal' => (string) ($publicationRow['journal'] ?? ''),
+                                'pub_year' => (string) ($publicationRow['pub_year'] ?? ''),
+                                'review_link' => $this->buildPiReviewLink($piReviewLinkBase, (string) $recordId, $instanceNo),
+                            ];
+                        }
+                    }
+                }
+            }
+
+            if (empty($publicationRows) || $piEmail === '' || filter_var($piEmail, FILTER_VALIDATE_EMAIL) === false) {
+                $notifications[] = [
+                    'record_id' => (string) $recordId,
+                    'pi_name' => $piName,
+                    'pi_email' => $piEmail,
+                    'publication_count' => count($publicationRows),
+                    'sent' => false,
+                    'reason' => 'missing_publications_or_valid_email',
+                ];
+                continue;
+            }
+
+            if (isset($recipientToIndex[$piEmail])) {
+                $index = $recipientToIndex[$piEmail];
+                $notifications[$index]['publication_rows'] = array_merge($notifications[$index]['publication_rows'], $publicationRows);
+                $notifications[$index]['record_ids'][] = (string) $recordId;
+                continue;
+            }
+
+            $recipientToIndex[$piEmail] = count($notifications);
+            $notifications[] = [
+                'record_id' => (string) $recordId,
+                'record_ids' => [(string) $recordId],
+                'pi_name' => $piName,
+                'pi_email' => $piEmail,
+                'publication_rows' => $publicationRows,
+            ];
+        }
+
+        foreach ($notifications as $index => $notification) {
+            if (!isset($notification['publication_rows'])) {
+                continue;
+            }
+
+            $piName = (string) ($notification['pi_name'] ?? '');
+            $subject = str_replace('{{pi_name}}', $piName, $subjectTemplate);
+            $intro = str_replace('{{pi_name}}', htmlspecialchars($piName, ENT_QUOTES), $introTemplate);
+            $htmlBody = $intro . '<br><br>' . $this->buildConsolidatedPiEmailHtml($notification['publication_rows'], $piReviewLinkBase);
+            $sent = $this->sendConsolidatedPiEmail((string) $notification['pi_email'], $piName, $subject, $htmlBody);
+
+            $notifications[$index] = [
+                'record_id' => (string) ($notification['record_id'] ?? ''),
+                'record_ids' => $notification['record_ids'] ?? [],
+                'pi_name' => $piName,
+                'pi_email' => (string) ($notification['pi_email'] ?? ''),
+                'publication_count' => count($notification['publication_rows']),
+                'sent' => $sent,
+            ];
+        }
+
+        return $notifications;
+    }
+
+    /**
+     * Build consolidated PI review email HTML with all publication instances.
+     */
+    private function buildConsolidatedPiEmailHtml(array $publicationRows, string $reviewLinkBase): string
+    {
+        $rows = '';
+        foreach ($publicationRows as $row) {
+            $title = htmlspecialchars((string) ($row['title'] ?? ''), ENT_QUOTES);
+            $authors = htmlspecialchars((string) ($row['authors'] ?? ''), ENT_QUOTES);
+            $journal = htmlspecialchars((string) ($row['journal'] ?? ''), ENT_QUOTES);
+            $pubYear = htmlspecialchars((string) ($row['pub_year'] ?? ''), ENT_QUOTES);
+            $reviewLink = (string) ($row['review_link'] ?? '');
+            $safeReviewLink = htmlspecialchars($reviewLink, ENT_QUOTES);
+            $reviewAnchor = $reviewLink !== ''
+                ? '<a href="' . $safeReviewLink . '" target="_blank" rel="noopener noreferrer">Open review</a>'
+                : 'Unavailable';
+
+            $rows .= '<tr>'
+                . '<td style="border:1px solid #ddd;padding:8px;">' . $title . '</td>'
+                . '<td style="border:1px solid #ddd;padding:8px;">' . $authors . '</td>'
+                . '<td style="border:1px solid #ddd;padding:8px;">' . $journal . '</td>'
+                . '<td style="border:1px solid #ddd;padding:8px;text-align:center;">' . $pubYear . '</td>'
+                . '<td style="border:1px solid #ddd;padding:8px;">' . $reviewAnchor . '</td>'
+                . '</tr>';
+        }
+
+        if ($rows === '') {
+            return '<p>No publication rows were found for this sync run.</p>';
+        }
+
+        return '<table style="border-collapse:collapse;width:100%;">'
+            . '<thead><tr>'
+            . '<th style="border:1px solid #ddd;padding:8px;text-align:left;">Title</th>'
+            . '<th style="border:1px solid #ddd;padding:8px;text-align:left;">Authors</th>'
+            . '<th style="border:1px solid #ddd;padding:8px;text-align:left;">Journal</th>'
+            . '<th style="border:1px solid #ddd;padding:8px;text-align:left;">Publication year</th>'
+            . '<th style="border:1px solid #ddd;padding:8px;text-align:left;">PI review link</th>'
+            . '</tr></thead>'
+            . '<tbody>' . $rows . '</tbody></table>'
+            . '<p style="margin-top:12px;color:#666;font-size:12px;">Review links are scoped to each repeating pi_review instance in this run.</p>';
+    }
+
+    /**
+     * Build PI review link for an explicit repeating instance.
+     */
+    private function buildPiReviewLink(string $reviewLinkBase, string $recordId, int $instance): string
+    {
+        $instance = max(1, $instance);
+        if ($reviewLinkBase === '') {
+            return '';
+        }
+
+        $separator = (strpos($reviewLinkBase, '?') !== false) ? '&' : '?';
+        return $reviewLinkBase
+            . $separator . 'record=' . rawurlencode($recordId)
+            . '&instrument=pi_review'
+            . '&instance=' . $instance;
+    }
+
+    /**
+     * Resolve base survey link for pi_review form.
+     */
+    private function getPiReviewLinkBase(int $project_id): string
+    {
+        if (method_exists('REDCap', 'getSurveyLink')) {
+            try {
+                $link = (string) REDCap::getSurveyLink('', 'pi_review', null, null, null, $project_id);
+                if ($link !== '') {
+                    return $link;
+                }
+            } catch (\Throwable $e) {
+                // Ignore and use fallback.
+            }
+        }
+
+        return (string) APP_PATH_SURVEY_FULL;
+    }
+
+    /**
+     * Send consolidated outbound notification email.
+     */
+    private function sendConsolidatedPiEmail(string $toEmail, string $piName, string $subject, string $htmlBody): bool
+    {
+        $toEmail = trim($toEmail);
+        if ($toEmail === '' || filter_var($toEmail, FILTER_VALIDATE_EMAIL) === false) {
+            return false;
+        }
+
+        $fromEmail = (defined('EMAIL_FROM') && is_string(EMAIL_FROM) && EMAIL_FROM !== '') ? EMAIL_FROM : 'no-reply@example.org';
+        $fromName = 'CorePubMatch';
+
+        if (class_exists('Message')) {
+            $message = new Message();
+            $message->setTo($toEmail);
+            $message->setFrom($fromEmail);
+            $message->setFromName($fromName);
+            $message->setSubject($subject);
+            $message->setBody($htmlBody);
+            $message->set('isHtml', true);
+
+            return (bool) $message->send();
+        }
+
+        if (method_exists('REDCap', 'email')) {
+            return (bool) REDCap::email($toEmail, $fromEmail, $subject, $htmlBody, '', '', $fromName, true);
+        }
+
+        return false;
     }
 
     /**
