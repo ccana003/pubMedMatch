@@ -457,7 +457,8 @@ HTML;
         }
 
         $payload = [];
-        $availableFields = $this->getProjectFieldNames($project_id);
+        $fieldMetadata = $this->getProjectFieldMetadata($project_id);
+        $repeatingInstruments = $this->getRepeatingInstruments($project_id);
         $optionalContactFieldMap = [
             'pi_name' => 'pi_name',
             'pi_email' => 'pi_email',
@@ -467,6 +468,7 @@ HTML;
             'verification_contact_confidence' => 'verify_contact_confidence',
             'verification_contact_nct_id' => 'verify_contact_nct_id',
         ];
+        $repeatRows = [];
 
         foreach ($records as $record) {
             $recordId = $this->generateRecordId($record['pmid']);
@@ -482,12 +484,37 @@ HTML;
             ];
 
             foreach ($optionalContactFieldMap as $recordKey => $redcapField) {
-                if (isset($availableFields[$redcapField])) {
-                    $row[$redcapField] = (string) ($record[$recordKey] ?? '');
+                if (!isset($fieldMetadata[$redcapField])) {
+                    continue;
                 }
+
+                $value = (string) ($record[$recordKey] ?? '');
+                if ($value === '') {
+                    continue;
+                }
+
+                $fieldForm = (string) ($fieldMetadata[$redcapField]['form_name'] ?? '');
+                if ($fieldForm !== '' && isset($repeatingInstruments[$fieldForm])) {
+                    $repeatKey = $recordId . '|' . $fieldForm;
+                    if (!isset($repeatRows[$repeatKey])) {
+                        $repeatRows[$repeatKey] = [
+                            'record_id' => $recordId,
+                            'redcap_repeat_instrument' => $fieldForm,
+                            'redcap_repeat_instance' => '1',
+                        ];
+                    }
+                    $repeatRows[$repeatKey][$redcapField] = $value;
+                    continue;
+                }
+
+                $row[$redcapField] = $value;
             }
 
             $payload[] = $row;
+        }
+
+        foreach ($repeatRows as $repeatRow) {
+            $payload[] = $repeatRow;
         }
 
         // Use JSON payload to keep row-oriented saves consistent across REDCap versions.
@@ -715,7 +742,7 @@ HTML;
     /**
      * Get data dictionary field names indexed for quick lookups.
      */
-    private function getProjectFieldNames(int $project_id): array
+    private function getProjectFieldMetadata(int $project_id): array
     {
         $dictionary = REDCap::getDataDictionary($project_id, 'array');
         if (!is_array($dictionary)) {
@@ -725,11 +752,47 @@ HTML;
         $fields = [];
         foreach ($dictionary as $fieldName => $meta) {
             if (is_string($fieldName) && $fieldName !== '') {
-                $fields[$fieldName] = true;
+                $fields[$fieldName] = is_array($meta) ? $meta : [];
             }
         }
 
         return $fields;
+    }
+
+    /**
+     * Return repeating instrument names for the project keyed for lookup.
+     */
+    private function getRepeatingInstruments(int $project_id): array
+    {
+        if (!method_exists('\REDCap', 'getRepeatingFormsEvents')) {
+            return [];
+        }
+
+        $raw = REDCap::getRepeatingFormsEvents($project_id);
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $forms = [];
+        foreach ($raw as $eventData) {
+            if (!is_array($eventData)) {
+                continue;
+            }
+
+            $eventForms = $eventData['forms'] ?? [];
+            if (!is_array($eventForms)) {
+                continue;
+            }
+
+            foreach ($eventForms as $formName) {
+                $name = trim((string) $formName);
+                if ($name !== '') {
+                    $forms[$name] = true;
+                }
+            }
+        }
+
+        return $forms;
     }
 
     /**
