@@ -16,6 +16,7 @@ class CorePubMatch extends AbstractExternalModule
     private const ESEARCH_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi';
     private const EFETCH_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi';
     private const ESUMMARY_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi';
+    private const CTGOV_STUDY_URL_TEMPLATE = 'https://clinicaltrials.gov/api/v2/studies/%s';
 
     /**
      * Inject a Run PubMed Sync button on Project Setup.
@@ -65,13 +66,13 @@ HTML;
             throw new \RuntimeException('Project settings are incomplete. Configure investigator names and date range first.');
         }
 
-        $investigators = $this->parseInvestigatorNames($investigatorList);
-        if (empty($investigators)) {
-            throw new \RuntimeException('No investigator names were found in module settings.');
+        $investigatorEntries = $this->parseInvestigatorEntries($investigatorList);
+        if (empty($investigatorEntries)) {
+            throw new \RuntimeException('No investigator entries were found in module settings.');
         }
 
         $debug = [
-            'investigator_count' => count($investigators),
+            'investigator_count' => count($investigatorEntries),
             'pmids_found_total' => 0,
             'pmids_after_dedup' => 0,
             'existing_pmids_count' => 0,
@@ -85,9 +86,17 @@ HTML;
         ];
 
         $allPmids = [];
-        foreach ($investigators as $name) {
+        $pmidToInvestigator = [];
+        foreach ($investigatorEntries as $entry) {
+            $name = $entry['name'];
             $query = sprintf('%s[Author] AND ("%s"[Date - Publication] : "%s"[Date - Publication])', $name, $startDate, $endDate);
-            $allPmids = array_merge($allPmids, $this->searchPubMed($query));
+            $pmids = $this->searchPubMed($query);
+            foreach ($pmids as $pmid) {
+                if (!isset($pmidToInvestigator[$pmid])) {
+                    $pmidToInvestigator[$pmid] = $entry;
+                }
+            }
+            $allPmids = array_merge($allPmids, $pmids);
         }
 
         $debug['pmids_found_total'] = count($allPmids);
@@ -103,8 +112,15 @@ HTML;
 
         $records = [];
         if (!empty($newPmids)) {
-            $fetchResult = $this->fetchDetails($newPmids);
+            $fetchResult = $this->fetchDetails($newPmids, array_column($investigatorEntries, 'name'));
             $records = $fetchResult['records'];
+            foreach ($records as &$record) {
+                $pmid = (string) ($record['pmid'] ?? '');
+                $matchedInvestigator = $pmidToInvestigator[$pmid] ?? null;
+                $record['pi_name'] = is_array($matchedInvestigator) ? (string) ($matchedInvestigator['name'] ?? '') : '';
+                $record['pi_email'] = is_array($matchedInvestigator) ? (string) ($matchedInvestigator['email'] ?? '') : '';
+            }
+            unset($record);
 
             $debug['fetched_records_count'] = count($records);
             $debug['fetch_error'] = $fetchResult['error'];
@@ -163,7 +179,7 @@ HTML;
     /**
      * Fetch PubMed metadata via EFetch XML.
      */
-    public function fetchDetails(array $pmids): array
+    public function fetchDetails(array $pmids, array $investigators = []): array
     {
         $pmids = array_values(array_unique(array_filter(array_map('trim', $pmids))));
         if (empty($pmids)) {
@@ -263,6 +279,7 @@ HTML;
             }
 
             $authors = [];
+            $correspondingEmail = '';
             if (isset($articleData->AuthorList->Author)) {
                 foreach ($articleData->AuthorList->Author as $author) {
                     $lastName = trim((string) $author->LastName);
@@ -273,6 +290,13 @@ HTML;
                         $authors[] = $collective;
                     } elseif ($lastName !== '' || $foreName !== '') {
                         $authors[] = trim($lastName . ', ' . $foreName, ', ');
+                    }
+
+                    if ($correspondingEmail === '') {
+                        $email = $this->extractEmailFromAuthorNode($author);
+                        if ($email !== '') {
+                            $correspondingEmail = $email;
+                        }
                     }
                 }
             }
@@ -287,6 +311,9 @@ HTML;
                 }
             }
 
+            $nctIds = $this->extractNctIdsFromArticle($article, $title, $abstract);
+            $contact = $this->resolveVerificationContact($nctIds, $investigators, $correspondingEmail);
+
             $records[] = [
                 'pmid' => $pmid,
                 'title' => $title,
@@ -294,6 +321,11 @@ HTML;
                 'authors' => implode('; ', $authors),
                 'journal' => $journal,
                 'pub_year' => $pubYear,
+                'verification_contact_name' => $contact['name'],
+                'verification_contact_email' => $contact['email'],
+                'verification_contact_source' => $contact['source'],
+                'verification_contact_confidence' => $contact['confidence'],
+                'verification_contact_nct_id' => $contact['nct_id'],
             ];
         }
 
@@ -382,6 +414,11 @@ HTML;
                 'authors' => implode('; ', $authors),
                 'journal' => trim((string) ($entry['fulljournalname'] ?? $entry['source'] ?? '')),
                 'pub_year' => $pubYear,
+                'verification_contact_name' => '',
+                'verification_contact_email' => '',
+                'verification_contact_source' => '',
+                'verification_contact_confidence' => '',
+                'verification_contact_nct_id' => '',
             ];
         }
 
@@ -420,9 +457,22 @@ HTML;
         }
 
         $payload = [];
+        $fieldMetadata = $this->getProjectFieldMetadata($project_id);
+        $repeatingInstruments = $this->getRepeatingInstruments($project_id);
+        $optionalContactFieldMap = [
+            'pi_name' => 'pi_name',
+            'pi_email' => 'pi_email',
+            'verification_contact_name' => 'verify_contact_name',
+            'verification_contact_email' => 'verify_contact_email',
+            'verification_contact_source' => 'verify_contact_source',
+            'verification_contact_confidence' => 'verify_contact_confidence',
+            'verification_contact_nct_id' => 'verify_contact_nct_id',
+        ];
+        $repeatRows = [];
+
         foreach ($records as $record) {
             $recordId = $this->generateRecordId($record['pmid']);
-            $payload[] = [
+            $row = [
                 'record_id' => $recordId,
                 'pmid' => $record['pmid'] ?? '',
                 'title' => $record['title'] ?? '',
@@ -432,6 +482,43 @@ HTML;
                 'pub_year' => $record['pub_year'] ?? '',
                 'status' => '0',
             ];
+
+            foreach ($optionalContactFieldMap as $recordKey => $redcapField) {
+                if (!isset($fieldMetadata[$redcapField])) {
+                    continue;
+                }
+
+                $value = (string) ($record[$recordKey] ?? '');
+                if ($value === '') {
+                    continue;
+                }
+
+                $fieldForm = (string) ($fieldMetadata[$redcapField]['form_name'] ?? '');
+                $forceRepeat = in_array($redcapField, ['pi_name', 'pi_email'], true);
+                if ($forceRepeat && $fieldForm === '') {
+                    $fieldForm = 'pi_review';
+                }
+                if ($fieldForm !== '' && ($forceRepeat || isset($repeatingInstruments[$fieldForm]))) {
+                    $repeatKey = $recordId . '|' . $fieldForm;
+                    if (!isset($repeatRows[$repeatKey])) {
+                        $repeatRows[$repeatKey] = [
+                            'record_id' => $recordId,
+                            'redcap_repeat_instrument' => $fieldForm,
+                            'redcap_repeat_instance' => '1',
+                        ];
+                    }
+                    $repeatRows[$repeatKey][$redcapField] = $value;
+                    continue;
+                }
+
+                $row[$redcapField] = $value;
+            }
+
+            $payload[] = $row;
+        }
+
+        foreach ($repeatRows as $repeatRow) {
+            $payload[] = $repeatRow;
         }
 
         // Use JSON payload to keep row-oriented saves consistent across REDCap versions.
@@ -525,19 +612,49 @@ HTML;
     /**
      * Build valid investigator names list.
      */
-    private function parseInvestigatorNames(string $investigatorList): array
+    private function parseInvestigatorEntries(string $investigatorList): array
     {
-        $names = preg_split('/\r\n|\r|\n/', $investigatorList) ?: [];
+        $rows = preg_split('/\r\n|\r|\n/', $investigatorList) ?: [];
+        $entries = [];
 
-        $cleaned = [];
-        foreach ($names as $name) {
-            $name = trim($name);
-            if ($name !== '') {
-                $cleaned[] = preg_replace('/\s+/', ' ', $name);
+        foreach ($rows as $row) {
+            $row = trim($row);
+            if ($row === '') {
+                continue;
+            }
+
+            $name = $row;
+            $email = '';
+            if (strpos($row, ',') !== false) {
+                [$rawName, $rawEmail] = array_pad(explode(',', $row, 2), 2, '');
+                $name = trim($rawName);
+                $email = strtolower(trim($rawEmail));
+            }
+
+            $name = preg_replace('/\s+/', ' ', $name);
+            if ($name === '') {
+                continue;
+            }
+
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                $email = '';
+            }
+
+            $entries[] = [
+                'name' => $name,
+                'email' => $email,
+            ];
+        }
+
+        $unique = [];
+        foreach ($entries as $entry) {
+            $key = strtolower($entry['name']) . '|' . strtolower($entry['email']);
+            if (!isset($unique[$key])) {
+                $unique[$key] = $entry;
             }
         }
 
-        return array_values(array_unique($cleaned));
+        return array_values($unique);
     }
 
     /**
@@ -624,6 +741,298 @@ HTML;
     private function generateRecordId(string $pmid): string
     {
         return 'PMID-' . preg_replace('/[^0-9A-Za-z_-]/', '', $pmid);
+    }
+
+    /**
+     * Get data dictionary field names indexed for quick lookups.
+     */
+    private function getProjectFieldMetadata(int $project_id): array
+    {
+        $dictionary = REDCap::getDataDictionary($project_id, 'array');
+        if (!is_array($dictionary)) {
+            return [];
+        }
+
+        $fields = [];
+        foreach ($dictionary as $fieldName => $meta) {
+            if (is_string($fieldName) && $fieldName !== '') {
+                $fields[$fieldName] = is_array($meta) ? $meta : [];
+            }
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Return repeating instrument names for the project keyed for lookup.
+     */
+    private function getRepeatingInstruments(int $project_id): array
+    {
+        if (!method_exists('\REDCap', 'getRepeatingFormsEvents')) {
+            return [];
+        }
+
+        $raw = REDCap::getRepeatingFormsEvents($project_id);
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $forms = [];
+        foreach ($raw as $eventData) {
+            if (!is_array($eventData)) {
+                continue;
+            }
+
+            $eventForms = $eventData['forms'] ?? [];
+            if (!is_array($eventForms)) {
+                continue;
+            }
+
+            foreach ($eventForms as $formName) {
+                $name = trim((string) $formName);
+                if ($name !== '') {
+                    $forms[$name] = true;
+                }
+            }
+        }
+
+        return $forms;
+    }
+
+    /**
+     * Extract email from PubMed author affiliation block.
+     */
+    private function extractEmailFromAuthorNode(\SimpleXMLElement $author): string
+    {
+        if (!isset($author->AffiliationInfo)) {
+            return '';
+        }
+
+        foreach ($author->AffiliationInfo as $affiliationInfo) {
+            $affiliation = trim((string) $affiliationInfo->Affiliation);
+            if ($affiliation === '') {
+                continue;
+            }
+
+            if (preg_match('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', $affiliation, $matches)) {
+                return strtolower(trim($matches[0]));
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Extract trial NCT IDs from article metadata and text.
+     */
+    private function extractNctIdsFromArticle(\SimpleXMLElement $article, string $title, string $abstract): array
+    {
+        $candidates = [];
+        $candidates = array_merge($candidates, $this->extractNctIdsFromText($title));
+        $candidates = array_merge($candidates, $this->extractNctIdsFromText($abstract));
+
+        if (isset($article->MedlineCitation->Article->DataBankList->DataBank)) {
+            foreach ($article->MedlineCitation->Article->DataBankList->DataBank as $dataBank) {
+                $bankName = strtolower(trim((string) $dataBank->DataBankName));
+                if ($bankName !== 'clinicaltrials.gov') {
+                    continue;
+                }
+
+                if (!isset($dataBank->AccessionNumberList->AccessionNumber)) {
+                    continue;
+                }
+
+                foreach ($dataBank->AccessionNumberList->AccessionNumber as $accession) {
+                    $candidates = array_merge($candidates, $this->extractNctIdsFromText((string) $accession));
+                }
+            }
+        }
+
+        return array_values(array_unique($candidates));
+    }
+
+    /**
+     * Extract normalized NCT IDs from text.
+     */
+    private function extractNctIdsFromText(string $text): array
+    {
+        if ($text === '') {
+            return [];
+        }
+
+        preg_match_all('/\bNCT\d{8}\b/i', $text, $matches);
+        if (empty($matches[0])) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($matches[0] as $match) {
+            $ids[] = strtoupper(trim((string) $match));
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * Select verification contact from trial contacts, then PubMed fallback.
+     */
+    private function resolveVerificationContact(array $nctIds, array $investigators, string $pubmedEmail): array
+    {
+        foreach ($nctIds as $nctId) {
+            $contact = $this->fetchClinicalTrialsContact($nctId, $investigators);
+            if ($contact !== null && $contact['email'] !== '') {
+                return [
+                    'name' => $contact['name'],
+                    'email' => $contact['email'],
+                    'source' => $contact['source'],
+                    'confidence' => (string) $contact['confidence'],
+                    'nct_id' => $nctId,
+                ];
+            }
+        }
+
+        if ($pubmedEmail !== '') {
+            return [
+                'name' => '',
+                'email' => $pubmedEmail,
+                'source' => 'pubmed_affiliation',
+                'confidence' => '0.60',
+                'nct_id' => isset($nctIds[0]) ? (string) $nctIds[0] : '',
+            ];
+        }
+
+        return [
+            'name' => '',
+            'email' => '',
+            'source' => '',
+            'confidence' => '',
+            'nct_id' => isset($nctIds[0]) ? (string) $nctIds[0] : '',
+        ];
+    }
+
+    /**
+     * Retrieve trial contacts and rank them for verification outreach.
+     */
+    private function fetchClinicalTrialsContact(string $nctId, array $investigators): ?array
+    {
+        $url = sprintf(self::CTGOV_STUDY_URL_TEMPLATE, rawurlencode($nctId));
+        $response = $this->httpRequest($url, 'GET');
+        if ($response['body'] === null) {
+            return null;
+        }
+
+        $decoded = json_decode($response['body'], true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+
+        $candidates = [];
+        $this->collectTrialContactCandidates($decoded, $candidates);
+        if (empty($candidates)) {
+            return null;
+        }
+
+        $best = null;
+        foreach ($candidates as $candidate) {
+            $score = $this->scoreContactCandidate($candidate, $investigators);
+            if ($best === null || $score > $best['score']) {
+                $best = [
+                    'name' => $candidate['name'],
+                    'email' => strtolower($candidate['email']),
+                    'source' => $candidate['source'],
+                    'score' => $score,
+                ];
+            }
+        }
+
+        if ($best === null) {
+            return null;
+        }
+
+        return [
+            'name' => $best['name'],
+            'email' => $best['email'],
+            'source' => $best['source'],
+            'confidence' => number_format(min(0.99, max(0.50, $best['score'] / 100)), 2, '.', ''),
+        ];
+    }
+
+    /**
+     * Recursively collect any name/email contacts in a trial payload.
+     */
+    private function collectTrialContactCandidates($value, array &$candidates, string $path = ''): void
+    {
+        if (!is_array($value)) {
+            return;
+        }
+
+        $emailKeys = ['email', 'emailAddress'];
+        $email = '';
+        foreach ($emailKeys as $emailKey) {
+            if (!empty($value[$emailKey]) && is_string($value[$emailKey])) {
+                $email = trim($value[$emailKey]);
+                break;
+            }
+        }
+
+        if ($email !== '' && preg_match('/^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$/i', $email)) {
+            $name = '';
+            if (!empty($value['name']) && is_string($value['name'])) {
+                $name = trim($value['name']);
+            } else {
+                $firstName = !empty($value['firstName']) ? trim((string) $value['firstName']) : '';
+                $lastName = !empty($value['lastName']) ? trim((string) $value['lastName']) : '';
+                $name = trim($firstName . ' ' . $lastName);
+            }
+
+            $source = ($path === '') ? 'clinicaltrials_contact' : 'clinicaltrials_' . preg_replace('/[^a-z0-9_]+/i', '_', strtolower($path));
+            $candidates[] = [
+                'name' => $name,
+                'email' => $email,
+                'source' => trim($source, '_'),
+            ];
+        }
+
+        foreach ($value as $key => $nested) {
+            if (is_array($nested)) {
+                $nextPath = $path === '' ? (string) $key : ($path . '.' . (string) $key);
+                $this->collectTrialContactCandidates($nested, $candidates, $nextPath);
+            }
+        }
+    }
+
+    /**
+     * Score candidate by source priority and investigator name match.
+     */
+    private function scoreContactCandidate(array $candidate, array $investigators): int
+    {
+        $score = 50;
+        $source = strtolower((string) ($candidate['source'] ?? ''));
+        $name = strtolower(trim((string) ($candidate['name'] ?? '')));
+
+        if (strpos($source, 'overallcontact') !== false || strpos($source, 'centralcontact') !== false) {
+            $score += 30;
+        } elseif (strpos($source, 'overallofficial') !== false || strpos($source, 'official') !== false) {
+            $score += 20;
+        } elseif (strpos($source, 'location') !== false) {
+            $score += 10;
+        }
+
+        if ($name !== '') {
+            foreach ($investigators as $investigator) {
+                $normalized = strtolower(preg_replace('/\s+/', ' ', trim((string) $investigator)));
+                if ($normalized === '') {
+                    continue;
+                }
+
+                if ($name === $normalized || strpos($name, $normalized) !== false || strpos($normalized, $name) !== false) {
+                    $score += 30;
+                    break;
+                }
+            }
+        }
+
+        return $score;
     }
 
     /**

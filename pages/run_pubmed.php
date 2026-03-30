@@ -16,6 +16,11 @@ $respondJson = static function (int $status, array $payload): void {
 };
 
 $redirectToProjectSetup = static function (int $projectId, string $message, string $type = 'info'): void {
+    $maxLength = 1500;
+    if (strlen($message) > $maxLength) {
+        $message = substr($message, 0, $maxLength - 3) . '...';
+    }
+
     $url = APP_PATH_WEBROOT . 'ProjectSetup/index.php?pid=' . $projectId
         . '&core_pubmatch_status=' . rawurlencode($message)
         . '&core_pubmatch_status_type=' . rawurlencode($type);
@@ -50,7 +55,11 @@ try {
     }
 
     if (!empty($saveErrors)) {
-        $statusMessage .= ' Save errors: ' . implode(' | ', array_map('strval', $saveErrors));
+        $statusMessage .= ' Save errors: ' . count($saveErrors) . '.';
+        $firstError = trim((string) ($saveErrors[0] ?? ''));
+        if ($firstError !== '') {
+            $statusMessage .= ' First: ' . $firstError;
+        }
     }
 
     if (!empty($debug['error_stage']) && !empty($debug['fetch_error'])) {
