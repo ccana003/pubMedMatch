@@ -474,7 +474,6 @@ HTML;
         $payload = [];
         $fieldMetadata = $this->getProjectFieldMetadata($project_id);
         $repeatingInstruments = $this->getRepeatingInstruments($project_id);
-        $coreNameDefault = trim((string) $this->getProjectSetting('core_name', $project_id));
         $optionalContactFieldMap = [
             'verification_contact_name' => 'verify_contact_name',
             'verification_contact_email' => 'verify_contact_email',
@@ -488,9 +487,6 @@ HTML;
         $piReviewForm = isset($fieldMetadata['pi_name'])
             ? (string) ($fieldMetadata['pi_name']['form_name'] ?? 'pi_review')
             : 'pi_review';
-        $coreReviewForm = isset($fieldMetadata['core_name'])
-            ? (string) ($fieldMetadata['core_name']['form_name'] ?? 'core_review')
-            : 'core_review';
 
         $grouped = [];
         foreach ($records as $record) {
@@ -564,15 +560,6 @@ HTML;
                     }
 
                     $payload[$baseRowIndex][$redcapField] = $value;
-                }
-
-                if (isset($fieldMetadata['core_name']) && $coreNameDefault !== '' && $coreReviewForm !== '') {
-                    $payload[] = [
-                        'record_id' => $recordId,
-                        'redcap_repeat_instrument' => $coreReviewForm,
-                        'redcap_repeat_instance' => (string) $instance,
-                        'core_name' => $coreNameDefault,
-                    ];
                 }
 
                 if ((isset($fieldMetadata['pi_name']) || isset($fieldMetadata['pi_email'])) && isset($repeatingInstruments[$piReviewForm])) {
