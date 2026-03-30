@@ -519,6 +519,9 @@ HTML;
             if (isset($fieldMetadata['investigator_email'])) {
                 $baseRow['investigator_email'] = $group['email'];
             }
+            if (isset($fieldMetadata['core_name']) && $coreNameDefault !== '' && !isset($repeatingInstruments[$coreReviewForm])) {
+                $baseRow['core_name'] = $coreNameDefault;
+            }
 
             $baseRowIndex = count($payload);
             $payload[] = $baseRow;

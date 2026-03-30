@@ -49,7 +49,7 @@ After enabling the module for a project, configure these project settings:
   - `Full Name, email@example.org`
 - **Start date** (`start_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
 - **End date** (`end_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
-- **Core name** (`core_name`, text): optional; used to prefill `core_name` on each repeating `core_review` row created for matched publications.
+- **Core name** (`core_name`, text): optional; used to prefill `core_name` on `core_review` (repeating per publication when `core_review` repeats, otherwise on the non-repeating `core_review` form row).
 - **Enable cron** (`enable_cron`, checkbox): optional future-use flag.
 
 ## Running PubMed Sync
@@ -121,7 +121,7 @@ Expected repeating setup for investigator-centric workflows:
 
 - `publications` should be configured as a repeating instrument (one instance per publication).
 - `pi_review` should be repeating if you want one PI review row per publication.
-- `core_review` should be repeating if you want one Core review row per publication (and optional project-level `core_name` autofill).
+- `core_review` can be non-repeating (single per investigator record) or repeating (one per publication instance). Project-level `core_name` autofill supports both patterns.
 
 Optional fields for contact routing (if present) are auto-populated:
 
