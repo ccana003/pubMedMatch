@@ -49,6 +49,7 @@ After enabling the module for a project, configure these project settings:
   - `Full Name, email@example.org`
 - **Start date** (`start_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
 - **End date** (`end_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
+- **Core name** (`core_name`, text): optional; used to prefill `core_name` on each repeating `core_review` row created for matched publications.
 - **Enable cron** (`enable_cron`, checkbox): optional future-use flag.
 
 ## Running PubMed Sync
@@ -85,7 +86,7 @@ The module then:
 3. Removes PMIDs already in REDCap.
 4. Fetches metadata via PubMed EFetch.
 5. Attaches matched PI metadata (`pi_name`, `pi_email`) from the configured investigator entry used to find each PMID.
-6. Inserts only new records.
+6. Groups publications by investigator and writes publication/review rows as repeating instances under one investigator-level `record_id`.
 
 If EFetch GET requests fail in your hosting environment, the module automatically retries with POST.
 If EFetch XML parsing fails, the module falls back to ESummary JSON metadata so records can still be inserted.
@@ -104,6 +105,8 @@ The endpoint also validates project context and rejects invalid project IDs.
 This module expects these REDCap fields to exist in the target project:
 
 - `record_id`
+- `investigator_name` (recommended on a non-repeating parent/Main form)
+- `investigator_email` (recommended on a non-repeating parent/Main form)
 - `pmid`
 - `title`
 - `abstract`
@@ -113,6 +116,12 @@ This module expects these REDCap fields to exist in the target project:
 - `status`
 - `pi_name`
 - `pi_email`
+
+Expected repeating setup for investigator-centric workflows:
+
+- `publications` should be configured as a repeating instrument (one instance per publication).
+- `pi_review` should be repeating if you want one PI review row per publication.
+- `core_review` should be repeating if you want one Core review row per publication (and optional project-level `core_name` autofill).
 
 Optional fields for contact routing (if present) are auto-populated:
 

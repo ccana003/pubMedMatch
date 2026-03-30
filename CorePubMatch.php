@@ -86,14 +86,19 @@ HTML;
         ];
 
         $allPmids = [];
-        $pmidToInvestigator = [];
+        $pmidToInvestigators = [];
         foreach ($investigatorEntries as $entry) {
             $name = $entry['name'];
             $query = sprintf('%s[Author] AND ("%s"[Date - Publication] : "%s"[Date - Publication])', $name, $startDate, $endDate);
             $pmids = $this->searchPubMed($query);
             foreach ($pmids as $pmid) {
-                if (!isset($pmidToInvestigator[$pmid])) {
-                    $pmidToInvestigator[$pmid] = $entry;
+                if (!isset($pmidToInvestigators[$pmid])) {
+                    $pmidToInvestigators[$pmid] = [];
+                }
+
+                $entryKey = strtolower((string) ($entry['name'] ?? '')) . '|' . strtolower((string) ($entry['email'] ?? ''));
+                if (!isset($pmidToInvestigators[$pmid][$entryKey])) {
+                    $pmidToInvestigators[$pmid][$entryKey] = $entry;
                 }
             }
             $allPmids = array_merge($allPmids, $pmids);
@@ -113,14 +118,24 @@ HTML;
         $records = [];
         if (!empty($newPmids)) {
             $fetchResult = $this->fetchDetails($newPmids, array_column($investigatorEntries, 'name'));
-            $records = $fetchResult['records'];
-            foreach ($records as &$record) {
-                $pmid = (string) ($record['pmid'] ?? '');
-                $matchedInvestigator = $pmidToInvestigator[$pmid] ?? null;
-                $record['pi_name'] = is_array($matchedInvestigator) ? (string) ($matchedInvestigator['name'] ?? '') : '';
-                $record['pi_email'] = is_array($matchedInvestigator) ? (string) ($matchedInvestigator['email'] ?? '') : '';
+            $fetchedRecords = $fetchResult['records'];
+            $records = [];
+            foreach ($fetchedRecords as $fetchedRecord) {
+                $pmid = (string) ($fetchedRecord['pmid'] ?? '');
+                $matchedInvestigators = $pmidToInvestigators[$pmid] ?? [];
+
+                if (empty($matchedInvestigators)) {
+                    $records[] = $fetchedRecord;
+                    continue;
+                }
+
+                foreach ($matchedInvestigators as $matchedInvestigator) {
+                    $record = $fetchedRecord;
+                    $record['pi_name'] = is_array($matchedInvestigator) ? (string) ($matchedInvestigator['name'] ?? '') : '';
+                    $record['pi_email'] = is_array($matchedInvestigator) ? (string) ($matchedInvestigator['email'] ?? '') : '';
+                    $records[] = $record;
+                }
             }
-            unset($record);
 
             $debug['fetched_records_count'] = count($records);
             $debug['fetch_error'] = $fetchResult['error'];
@@ -459,66 +474,125 @@ HTML;
         $payload = [];
         $fieldMetadata = $this->getProjectFieldMetadata($project_id);
         $repeatingInstruments = $this->getRepeatingInstruments($project_id);
+        $coreNameDefault = trim((string) $this->getProjectSetting('core_name', $project_id));
         $optionalContactFieldMap = [
-            'pi_name' => 'pi_name',
-            'pi_email' => 'pi_email',
             'verification_contact_name' => 'verify_contact_name',
             'verification_contact_email' => 'verify_contact_email',
             'verification_contact_source' => 'verify_contact_source',
             'verification_contact_confidence' => 'verify_contact_confidence',
             'verification_contact_nct_id' => 'verify_contact_nct_id',
         ];
-        $repeatRows = [];
+        $publicationForm = isset($fieldMetadata['pmid'])
+            ? (string) ($fieldMetadata['pmid']['form_name'] ?? 'publications')
+            : 'publications';
+        $piReviewForm = isset($fieldMetadata['pi_name'])
+            ? (string) ($fieldMetadata['pi_name']['form_name'] ?? 'pi_review')
+            : 'pi_review';
+        $coreReviewForm = isset($fieldMetadata['core_name'])
+            ? (string) ($fieldMetadata['core_name']['form_name'] ?? 'core_review')
+            : 'core_review';
 
+        $grouped = [];
         foreach ($records as $record) {
-            $recordId = $this->generateRecordId($record['pmid']);
-            $row = [
-                'record_id' => $recordId,
-                'pmid' => $record['pmid'] ?? '',
-                'title' => $record['title'] ?? '',
-                'abstract' => $record['abstract'] ?? '',
-                'authors' => $record['authors'] ?? '',
-                'journal' => $record['journal'] ?? '',
-                'pub_year' => $record['pub_year'] ?? '',
-                'status' => '0',
-            ];
+            $piName = trim((string) ($record['pi_name'] ?? ''));
+            $piEmail = strtolower(trim((string) ($record['pi_email'] ?? '')));
+            $investigatorKey = $this->buildInvestigatorKey($piName, $piEmail);
 
-            foreach ($optionalContactFieldMap as $recordKey => $redcapField) {
-                if (!isset($fieldMetadata[$redcapField])) {
-                    continue;
-                }
-
-                $value = (string) ($record[$recordKey] ?? '');
-                if ($value === '') {
-                    continue;
-                }
-
-                $fieldForm = (string) ($fieldMetadata[$redcapField]['form_name'] ?? '');
-                $forceRepeat = in_array($redcapField, ['pi_name', 'pi_email'], true);
-                if ($forceRepeat && $fieldForm === '') {
-                    $fieldForm = 'pi_review';
-                }
-                if ($fieldForm !== '' && ($forceRepeat || isset($repeatingInstruments[$fieldForm]))) {
-                    $repeatKey = $recordId . '|' . $fieldForm;
-                    if (!isset($repeatRows[$repeatKey])) {
-                        $repeatRows[$repeatKey] = [
-                            'record_id' => $recordId,
-                            'redcap_repeat_instrument' => $fieldForm,
-                            'redcap_repeat_instance' => '1',
-                        ];
-                    }
-                    $repeatRows[$repeatKey][$redcapField] = $value;
-                    continue;
-                }
-
-                $row[$redcapField] = $value;
+            if (!isset($grouped[$investigatorKey])) {
+                $grouped[$investigatorKey] = [
+                    'name' => $piName,
+                    'email' => $piEmail,
+                    'records' => [],
+                ];
             }
 
-            $payload[] = $row;
+            $grouped[$investigatorKey]['records'][] = $record;
         }
 
-        foreach ($repeatRows as $repeatRow) {
-            $payload[] = $repeatRow;
+        foreach ($grouped as $group) {
+            $recordId = $this->generateInvestigatorRecordId($group['name'], $group['email']);
+            $baseRow = ['record_id' => $recordId];
+
+            if (isset($fieldMetadata['investigator_name'])) {
+                $baseRow['investigator_name'] = $group['name'];
+            }
+            if (isset($fieldMetadata['investigator_email'])) {
+                $baseRow['investigator_email'] = $group['email'];
+            }
+
+            $baseRowIndex = count($payload);
+            $payload[] = $baseRow;
+
+            $instance = 1;
+            foreach ($group['records'] as $record) {
+                $publicationRow = [
+                    'record_id' => $recordId,
+                    'redcap_repeat_instrument' => $publicationForm,
+                    'redcap_repeat_instance' => (string) $instance,
+                    'pmid' => (string) ($record['pmid'] ?? ''),
+                    'title' => (string) ($record['title'] ?? ''),
+                    'abstract' => (string) ($record['abstract'] ?? ''),
+                    'authors' => (string) ($record['authors'] ?? ''),
+                    'journal' => (string) ($record['journal'] ?? ''),
+                    'pub_year' => (string) ($record['pub_year'] ?? ''),
+                    'status' => '0',
+                ];
+                $payload[] = $publicationRow;
+
+                foreach ($optionalContactFieldMap as $recordKey => $redcapField) {
+                    if (!isset($fieldMetadata[$redcapField])) {
+                        continue;
+                    }
+
+                    $value = trim((string) ($record[$recordKey] ?? ''));
+                    if ($value === '') {
+                        continue;
+                    }
+
+                    $fieldForm = (string) ($fieldMetadata[$redcapField]['form_name'] ?? '');
+                    if ($fieldForm === '' || $fieldForm === $publicationForm || isset($repeatingInstruments[$fieldForm])) {
+                        if ($fieldForm === '' || $fieldForm === $publicationForm) {
+                            $payload[count($payload) - 1][$redcapField] = $value;
+                        } else {
+                            $payload[] = [
+                                'record_id' => $recordId,
+                                'redcap_repeat_instrument' => $fieldForm,
+                                'redcap_repeat_instance' => (string) $instance,
+                                $redcapField => $value,
+                            ];
+                        }
+                        continue;
+                    }
+
+                    $payload[$baseRowIndex][$redcapField] = $value;
+                }
+
+                if (isset($fieldMetadata['core_name']) && $coreNameDefault !== '' && isset($repeatingInstruments[$coreReviewForm])) {
+                    $payload[] = [
+                        'record_id' => $recordId,
+                        'redcap_repeat_instrument' => $coreReviewForm,
+                        'redcap_repeat_instance' => (string) $instance,
+                        'core_name' => $coreNameDefault,
+                    ];
+                }
+
+                if ((isset($fieldMetadata['pi_name']) || isset($fieldMetadata['pi_email'])) && isset($repeatingInstruments[$piReviewForm])) {
+                    $piReviewRow = [
+                        'record_id' => $recordId,
+                        'redcap_repeat_instrument' => $piReviewForm,
+                        'redcap_repeat_instance' => (string) $instance,
+                    ];
+                    if (isset($fieldMetadata['pi_name'])) {
+                        $piReviewRow['pi_name'] = $group['name'];
+                    }
+                    if (isset($fieldMetadata['pi_email'])) {
+                        $piReviewRow['pi_email'] = $group['email'];
+                    }
+                    $payload[] = $piReviewRow;
+                }
+
+                $instance++;
+            }
         }
 
         // Use JSON payload to keep row-oriented saves consistent across REDCap versions.
@@ -736,11 +810,27 @@ HTML;
     }
 
     /**
-     * Make deterministic REDCap record IDs from PMID.
+     * Make deterministic REDCap record IDs from investigator identity.
      */
-    private function generateRecordId(string $pmid): string
+    private function generateInvestigatorRecordId(string $name, string $email = ''): string
     {
-        return 'PMID-' . preg_replace('/[^0-9A-Za-z_-]/', '', $pmid);
+        $normalizedName = strtolower(preg_replace('/\s+/', ' ', trim($name)) ?? '');
+        $normalizedEmail = strtolower(trim($email));
+        $base = $normalizedName . '|' . $normalizedEmail;
+
+        if ($base === '|') {
+            return 'INV-' . substr(sha1((string) microtime(true)), 0, 12);
+        }
+
+        return 'INV-' . substr(sha1($base), 0, 12);
+    }
+
+    /**
+     * Build a stable key for investigator grouping.
+     */
+    private function buildInvestigatorKey(string $name, string $email = ''): string
+    {
+        return strtolower(preg_replace('/\s+/', ' ', trim($name)) ?? '') . '|' . strtolower(trim($email));
     }
 
     /**

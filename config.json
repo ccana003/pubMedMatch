@@ -33,6 +33,11 @@
       "required": true
     },
     {
+      "key": "core_name",
+      "name": "Core name (used to prefill core review rows)",
+      "type": "text"
+    },
+    {
       "key": "enable_cron",
       "name": "Enable cron (optional for future use)",
       "type": "checkbox"
