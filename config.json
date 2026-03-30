@@ -16,7 +16,7 @@
   "project-settings": [
     {
       "key": "investigator_names",
-      "name": "Investigator names",
+      "name": "Investigator entries (Name or Name, email)",
       "type": "textarea",
       "required": true
     },

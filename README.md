@@ -8,6 +8,7 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
 - Pulls PMIDs from PubMed by investigator and publication date range.
 - Deduplicates PMIDs across investigators.
 - Skips PMIDs already present in REDCap.
+- Carries forward matched investigator metadata to each saved record (`pi_name`, `pi_email`) based on the investigator line that produced the PMID match.
 - Saves new publications into REDCap fields:
   - `record_id`
   - `pmid`
@@ -43,7 +44,9 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
 
 After enabling the module for a project, configure these project settings:
 
-- **Investigator names** (`investigator_names`, textarea): one investigator name per line.
+- **Investigator entries** (`investigator_names`, textarea): one investigator per line in either format:
+  - `Full Name`
+  - `Full Name, email@example.org`
 - **Start date** (`start_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
 - **End date** (`end_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
 - **Enable cron** (`enable_cron`, checkbox): optional future-use flag.
@@ -81,7 +84,8 @@ The module then:
 2. Removes duplicates.
 3. Removes PMIDs already in REDCap.
 4. Fetches metadata via PubMed EFetch.
-5. Inserts only new records.
+5. Attaches matched PI metadata (`pi_name`, `pi_email`) from the configured investigator entry used to find each PMID.
+6. Inserts only new records.
 
 If EFetch GET requests fail in your hosting environment, the module automatically retries with POST.
 If EFetch XML parsing fails, the module falls back to ESummary JSON metadata so records can still be inserted.
@@ -107,6 +111,8 @@ This module expects these REDCap fields to exist in the target project:
 - `journal`
 - `pub_year`
 - `status`
+- `pi_name`
+- `pi_email`
 
 Optional fields for contact routing (if present) are auto-populated:
 

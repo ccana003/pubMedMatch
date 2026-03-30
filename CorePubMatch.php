@@ -66,13 +66,13 @@ HTML;
             throw new \RuntimeException('Project settings are incomplete. Configure investigator names and date range first.');
         }
 
-        $investigators = $this->parseInvestigatorNames($investigatorList);
-        if (empty($investigators)) {
-            throw new \RuntimeException('No investigator names were found in module settings.');
+        $investigatorEntries = $this->parseInvestigatorEntries($investigatorList);
+        if (empty($investigatorEntries)) {
+            throw new \RuntimeException('No investigator entries were found in module settings.');
         }
 
         $debug = [
-            'investigator_count' => count($investigators),
+            'investigator_count' => count($investigatorEntries),
             'pmids_found_total' => 0,
             'pmids_after_dedup' => 0,
             'existing_pmids_count' => 0,
@@ -86,9 +86,17 @@ HTML;
         ];
 
         $allPmids = [];
-        foreach ($investigators as $name) {
+        $pmidToInvestigator = [];
+        foreach ($investigatorEntries as $entry) {
+            $name = $entry['name'];
             $query = sprintf('%s[Author] AND ("%s"[Date - Publication] : "%s"[Date - Publication])', $name, $startDate, $endDate);
-            $allPmids = array_merge($allPmids, $this->searchPubMed($query));
+            $pmids = $this->searchPubMed($query);
+            foreach ($pmids as $pmid) {
+                if (!isset($pmidToInvestigator[$pmid])) {
+                    $pmidToInvestigator[$pmid] = $entry;
+                }
+            }
+            $allPmids = array_merge($allPmids, $pmids);
         }
 
         $debug['pmids_found_total'] = count($allPmids);
@@ -104,8 +112,15 @@ HTML;
 
         $records = [];
         if (!empty($newPmids)) {
-            $fetchResult = $this->fetchDetails($newPmids, $investigators);
+            $fetchResult = $this->fetchDetails($newPmids, array_column($investigatorEntries, 'name'));
             $records = $fetchResult['records'];
+            foreach ($records as &$record) {
+                $pmid = (string) ($record['pmid'] ?? '');
+                $matchedInvestigator = $pmidToInvestigator[$pmid] ?? null;
+                $record['pi_name'] = is_array($matchedInvestigator) ? (string) ($matchedInvestigator['name'] ?? '') : '';
+                $record['pi_email'] = is_array($matchedInvestigator) ? (string) ($matchedInvestigator['email'] ?? '') : '';
+            }
+            unset($record);
 
             $debug['fetched_records_count'] = count($records);
             $debug['fetch_error'] = $fetchResult['error'];
@@ -444,6 +459,8 @@ HTML;
         $payload = [];
         $availableFields = $this->getProjectFieldNames($project_id);
         $optionalContactFieldMap = [
+            'pi_name' => 'pi_name',
+            'pi_email' => 'pi_email',
             'verification_contact_name' => 'verify_contact_name',
             'verification_contact_email' => 'verify_contact_email',
             'verification_contact_source' => 'verify_contact_source',
@@ -564,19 +581,49 @@ HTML;
     /**
      * Build valid investigator names list.
      */
-    private function parseInvestigatorNames(string $investigatorList): array
+    private function parseInvestigatorEntries(string $investigatorList): array
     {
-        $names = preg_split('/\r\n|\r|\n/', $investigatorList) ?: [];
+        $rows = preg_split('/\r\n|\r|\n/', $investigatorList) ?: [];
+        $entries = [];
 
-        $cleaned = [];
-        foreach ($names as $name) {
-            $name = trim($name);
-            if ($name !== '') {
-                $cleaned[] = preg_replace('/\s+/', ' ', $name);
+        foreach ($rows as $row) {
+            $row = trim($row);
+            if ($row === '') {
+                continue;
+            }
+
+            $name = $row;
+            $email = '';
+            if (strpos($row, ',') !== false) {
+                [$rawName, $rawEmail] = array_pad(explode(',', $row, 2), 2, '');
+                $name = trim($rawName);
+                $email = strtolower(trim($rawEmail));
+            }
+
+            $name = preg_replace('/\s+/', ' ', $name);
+            if ($name === '') {
+                continue;
+            }
+
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                $email = '';
+            }
+
+            $entries[] = [
+                'name' => $name,
+                'email' => $email,
+            ];
+        }
+
+        $unique = [];
+        foreach ($entries as $entry) {
+            $key = strtolower($entry['name']) . '|' . strtolower($entry['email']);
+            if (!isset($unique[$key])) {
+                $unique[$key] = $entry;
             }
         }
 
-        return array_values(array_unique($cleaned));
+        return array_values($unique);
     }
 
     /**
