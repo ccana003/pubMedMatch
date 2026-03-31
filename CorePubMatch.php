@@ -23,26 +23,27 @@ class CorePubMatch extends AbstractExternalModule
      */
     public function redcap_every_page_top($project_id = null): void
     {
-        if (empty($project_id)) {
-            return;
-        }
+        try {
+            if (empty($project_id)) {
+                return;
+            }
 
-        if (!$this->canRunSync($project_id)) {
-            return;
-        }
+            if (!$this->canRunSync($project_id)) {
+                return;
+            }
 
-        if (!$this->isProjectSetupPage()) {
-            return;
-        }
+            if (!$this->isProjectSetupPage()) {
+                return;
+            }
 
-        $runUrl = htmlspecialchars($this->getUrl('pages/run_pubmed.php') . '&project_id=' . (int) $project_id, ENT_QUOTES);
+            $runUrl = htmlspecialchars($this->getUrl('pages/run_pubmed.php') . '&project_id=' . (int) $project_id, ENT_QUOTES);
 
-        $status = trim((string) ($_GET['core_pubmatch_status'] ?? 'Idle.'));
-        $statusType = trim((string) ($_GET['core_pubmatch_status_type'] ?? 'info'));
-        $statusColor = ($statusType === 'error') ? '#b00020' : '#555';
-        $status = htmlspecialchars($status, ENT_QUOTES);
+            $status = trim((string) ($_GET['core_pubmatch_status'] ?? 'Idle.'));
+            $statusType = trim((string) ($_GET['core_pubmatch_status_type'] ?? 'info'));
+            $statusColor = ($statusType === 'error') ? '#b00020' : '#555';
+            $status = htmlspecialchars($status, ENT_QUOTES);
 
-        echo <<<HTML
+            echo <<<HTML
 <div id="core-pubmatch-container" style="margin:15px 0;padding:12px;border:1px solid #d9d9d9;background:#fafafa;">
     <h4 style="margin-top:0;">CorePubMatch</h4>
     <form method="post" action="{$runUrl}" style="display:inline;">
@@ -51,6 +52,82 @@ class CorePubMatch extends AbstractExternalModule
     <span id="core-pubmatch-status" style="margin-left:10px;color:{$statusColor};">{$status}</span>
 </div>
 HTML;
+        } catch (\Throwable $e) {
+            $this->logModuleError('redcap_every_page_top failed', [
+                'project_id' => $project_id,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+        }
+    }
+
+    /**
+     * Inject Step B survey shell (public survey context).
+     */
+    public function redcap_survey_page_top(
+        $project_id,
+        $record = null,
+        $instrument = null,
+        $event_id = null,
+        $group_id = null,
+        $repeat_instance = 1
+    ): void {
+        try {
+            $projectId = (int) $project_id;
+            if ($projectId < 1) {
+                return;
+            }
+
+            $identifier = trim((string) ($_GET['core_pubmatch_identifier'] ?? ''));
+            if ($identifier === '') {
+                return;
+            }
+
+            $surveyHash = trim((string) ($_GET['s'] ?? ''));
+            if ($surveyHash === '') {
+                return;
+            }
+
+            $sig = trim((string) ($_GET['cpm_sig'] ?? ''));
+            if (!$this->isValidPublicSurveySignature($projectId, $identifier, $sig)) {
+                echo '<div style="margin:10px 0;color:#b00020;">CorePubMatch: invalid survey signature.</div>';
+                return;
+            }
+
+            $apiBase = htmlspecialchars(
+                APP_PATH_WEBROOT . 'ExternalModules/?prefix=' . rawurlencode($this->PREFIX) . '&page=ajax.php&NOAUTH',
+                ENT_QUOTES
+            );
+            $scriptUrl = htmlspecialchars(
+                APP_PATH_WEBROOT . 'ExternalModules/?prefix=' . rawurlencode($this->PREFIX) . '&page=js/survey_stepb.js&NOAUTH',
+                ENT_QUOTES
+            );
+            $identifierEscaped = htmlspecialchars($identifier, ENT_QUOTES);
+            $sigEscaped = htmlspecialchars($sig, ENT_QUOTES);
+            $surveyHashEscaped = htmlspecialchars($surveyHash, ENT_QUOTES);
+
+            echo <<<HTML
+<div id="core-pubmatch-survey-root" data-identifier="{$identifierEscaped}"></div>
+<script>
+window.CorePubMatchSurvey = {
+  apiBase: "{$apiBase}",
+  pid: "{$projectId}",
+  identifier: "{$identifierEscaped}",
+  surveyHash: "{$surveyHashEscaped}",
+  sig: "{$sigEscaped}"
+};
+</script>
+<script src="{$scriptUrl}"></script>
+HTML;
+        } catch (\Throwable $e) {
+            $this->logModuleError('redcap_survey_page_top failed', [
+                'project_id' => $project_id,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+        }
     }
 
     /**
@@ -83,6 +160,8 @@ HTML;
             'error_stage' => null,
             'save_errors' => [],
             'fetch_error' => null,
+            'review_emails_sent' => 0,
+            'review_email_errors' => [],
         ];
 
         $allPmids = [];
@@ -151,6 +230,10 @@ HTML;
             if (!empty($debug['save_errors']) && $debug['error_stage'] === null) {
                 $debug['error_stage'] = 'save_data';
             }
+
+            $emailResult = $this->sendInvestigatorReviewEmails($project_id, $records);
+            $debug['review_emails_sent'] = (int) ($emailResult['sent'] ?? 0);
+            $debug['review_email_errors'] = (array) ($emailResult['errors'] ?? []);
         }
 
         // TODO: Add PI notification workflow.
@@ -1133,5 +1216,248 @@ HTML;
         $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
 
         return (strpos($scriptName, '/ProjectSetup/index.php') !== false);
+    }
+
+    /**
+     * Return publication cards for a piped identifier (record_id/email/name).
+     *
+     * This method is intentionally hook-independent so survey UX can be rendered
+     * from a dedicated page endpoint without intercepting survey hooks.
+     */
+    public function getSurveyCardsForIdentifier(int $projectId, string $identifier): array
+    {
+        $identifier = trim($identifier);
+        if ($projectId < 1 || $identifier === '') {
+            return [];
+        }
+
+        $json = REDCap::getData([
+            'project_id' => $projectId,
+            'return_format' => 'json',
+            'fields' => [
+                'record_id',
+                'investigator_name',
+                'investigator_email',
+                'pmid',
+                'title',
+                'authors',
+                'journal',
+                'pub_year',
+                'is_mine',
+                'pi_confidence',
+                'is_core_related',
+                'level_of_support',
+                'pi_review_date',
+            ],
+        ]);
+
+        $rows = json_decode((string) $json, true);
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $identifierLower = strtolower($identifier);
+        $recordIds = [];
+        $recordToInvestigator = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $recordId = trim((string) ($row['record_id'] ?? ''));
+            if ($recordId === '') {
+                continue;
+            }
+
+            $investigatorEmail = strtolower(trim((string) ($row['investigator_email'] ?? '')));
+            $investigatorName = strtolower(trim((string) ($row['investigator_name'] ?? '')));
+            if (!isset($recordToInvestigator[$recordId])) {
+                $recordToInvestigator[$recordId] = trim((string) ($row['investigator_name'] ?? ''));
+            }
+            if ($recordId === $identifier || $investigatorEmail === $identifierLower || $investigatorName === $identifierLower) {
+                $recordIds[$recordId] = true;
+            }
+        }
+
+        $cards = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $recordId = trim((string) ($row['record_id'] ?? ''));
+            if (!isset($recordIds[$recordId])) {
+                continue;
+            }
+
+            $pmid = trim((string) ($row['pmid'] ?? ''));
+            $title = trim((string) ($row['title'] ?? ''));
+            if ($pmid === '' && $title === '') {
+                continue;
+            }
+            $isMine = trim((string) ($row['is_mine'] ?? ''));
+            if ($isMine !== '') {
+                // Only show publications still pending PI ownership answer.
+                continue;
+            }
+
+            $cards[] = [
+                'record_id' => $recordId,
+                'instance' => trim((string) ($row['redcap_repeat_instance'] ?? '')),
+                'pmid' => $pmid,
+                'title' => $title,
+                'authors' => trim((string) ($row['authors'] ?? '')),
+                'journal' => trim((string) ($row['journal'] ?? '')),
+                'pub_year' => trim((string) ($row['pub_year'] ?? '')),
+                'matched_investigator' => trim((string) ($recordToInvestigator[$recordId] ?? '')),
+                'is_mine' => $isMine,
+                'pi_confidence' => trim((string) ($row['pi_confidence'] ?? '')),
+                'is_core_related' => trim((string) ($row['is_core_related'] ?? '')),
+                'level_of_support' => trim((string) ($row['level_of_support'] ?? '')),
+                'pi_review_date' => trim((string) ($row['pi_review_date'] ?? '')),
+            ];
+        }
+
+        return $cards;
+    }
+
+    /**
+     * Send one PI-review email per investigator for newly matched publications.
+     */
+    private function sendInvestigatorReviewEmails(int $projectId, array $records): array
+    {
+        $baseSurveyUrl = trim((string) $this->getProjectSetting('pi_survey_base_url', $projectId));
+        if ($baseSurveyUrl === '') {
+            return ['sent' => 0, 'errors' => []];
+        }
+
+        $secret = trim((string) $this->getProjectSetting('public_link_secret', $projectId));
+        $grouped = [];
+        foreach ($records as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $name = trim((string) ($row['pi_name'] ?? ''));
+            $email = strtolower(trim((string) ($row['pi_email'] ?? '')));
+            if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                continue;
+            }
+
+            $key = $name . '|' . $email;
+            if (isset($grouped[$key])) {
+                continue;
+            }
+
+            $identifier = $this->generateInvestigatorRecordId($name, $email);
+            $link = $baseSurveyUrl
+                . (strpos($baseSurveyUrl, '?') === false ? '?' : '&')
+                . 'core_pubmatch_identifier=' . rawurlencode($identifier);
+            if ($secret !== '') {
+                $sig = hash_hmac('sha256', $identifier, $secret);
+                $link .= '&cpm_sig=' . rawurlencode($sig);
+            }
+
+            $grouped[$key] = [
+                'name' => $name,
+                'email' => $email,
+                'link' => $link,
+            ];
+        }
+
+        $sent = 0;
+        $errors = [];
+        foreach ($grouped as $entry) {
+            $to = $entry['email'];
+            $subject = 'CorePubMatch: publications pending your review';
+            $body = "Hello " . ($entry['name'] !== '' ? $entry['name'] : 'Investigator') . ",\n\n"
+                . "New publications were matched and need your review.\n\n"
+                . "Review link:\n" . $entry['link'] . "\n\n"
+                . "Thank you.";
+            $ok = REDCap::email('', $to, 'CorePubMatch', $subject, $body);
+            if ($ok) {
+                $sent++;
+            } else {
+                $errors[] = 'Failed to send email to ' . $to;
+            }
+        }
+
+        return ['sent' => $sent, 'errors' => $errors];
+    }
+
+    /**
+     * Persist PI review fields on a repeating publication instance.
+     */
+    public function saveSurveyReviewValues(int $projectId, string $recordId, int $instance, array $values): array
+    {
+        if ($projectId < 1 || $recordId === '' || $instance < 1) {
+            return ['errors' => ['Invalid save parameters.']];
+        }
+
+        $fieldMetadata = $this->getProjectFieldMetadata($projectId);
+        $publicationForm = isset($fieldMetadata['pmid'])
+            ? (string) ($fieldMetadata['pmid']['form_name'] ?? 'publications')
+            : 'publications';
+
+        $payload = [[
+            'record_id' => $recordId,
+            'redcap_repeat_instrument' => $publicationForm,
+            'redcap_repeat_instance' => (string) $instance,
+            'is_mine' => (string) ($values['is_mine'] ?? ''),
+            'pi_confidence' => (string) ($values['pi_confidence'] ?? ''),
+            'is_core_related' => (string) ($values['is_core_related'] ?? ''),
+            'level_of_support' => (string) ($values['level_of_support'] ?? ''),
+            'pi_review_date' => (string) ($values['pi_review_date'] ?? date('Y-m-d')),
+            'status' => '2',
+            'publications_complete' => '2',
+        ]];
+
+        $result = REDCap::saveData($projectId, 'json', json_encode($payload));
+        $errors = [];
+        if (is_array($result) && !empty($result['errors']) && is_array($result['errors'])) {
+            $errors = array_values(array_filter(array_map('trim', $result['errors'])));
+        }
+
+        return ['errors' => $errors];
+    }
+
+    /**
+     * Optional signature check for public survey links.
+     */
+    public function isValidPublicSurveySignature(int $projectId, string $identifier, string $sig): bool
+    {
+        $secret = trim((string) $this->getProjectSetting('public_link_secret', $projectId));
+        if ($secret === '') {
+            // Backward-compatible: if no secret set, do not enforce signature.
+            return true;
+        }
+
+        if ($sig === '') {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', $identifier, $secret);
+        return hash_equals($expected, $sig);
+    }
+
+    /**
+     * Lightweight module-side error logging to aid production debugging.
+     */
+    private function logModuleError(string $message, array $context = []): void
+    {
+        $line = '[CorePubMatch ' . gmdate('Y-m-d H:i:s') . ' UTC] ' . $message;
+        if (!empty($context)) {
+            $json = json_encode($context);
+            if ($json !== false) {
+                $line .= ' ' . $json;
+            }
+        }
+
+        // Always mirror to PHP error_log.
+        error_log($line);
+
+        // Best-effort local module log.
+        $path = __DIR__ . '/corepubmatch_runtime.log';
+        @file_put_contents($path, $line . PHP_EOL, FILE_APPEND);
     }
 }

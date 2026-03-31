@@ -32,8 +32,14 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
 2. Copy all files from this repository into that directory:
    - `config.json`
    - `CorePubMatch.php`
+   - `ajax.php`
+   - `survey_matches.php`
    - `pages/run_pubmed.php`
+   - `pages/survey_matches.php`
+   - `pages/survey_match_view.php`
    - `js/pubmed.js`
+   - `js/survey_stepb.js`
+   - `DEBUGGING.md`
 3. In REDCap Control Center:
    - Go to **External Modules**.
    - Enable **CorePubMatch** at the system level.
@@ -50,6 +56,8 @@ After enabling the module for a project, configure these project settings:
 - **Start date** (`start_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
 - **End date** (`end_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
 - **Enable cron** (`enable_cron`, checkbox): optional future-use flag.
+- **Public survey link secret** (`public_link_secret`, text): optional HMAC secret for public survey signature validation (`cpm_sig`).
+- **PI survey base URL for review emails** (`pi_survey_base_url`, text): optional full survey link base used to email investigators after new matches are saved.
 
 ## Running PubMed Sync
 
@@ -63,6 +71,49 @@ After enabling the module for a project, configure these project settings:
      - `Fetch issue (efetch_http|efetch_xml_parse): ...`
      - `Save errors: ...`
    - `Error: ...` (if an issue occurs)
+
+If rendering on Project Setup fails unexpectedly, CorePubMatch now writes best-effort runtime diagnostics to:
+
+- PHP `error_log`
+- `<module-root>/corepubmatch_runtime.log`
+
+## Survey Match View (Hook-independent)
+
+To avoid survey-hook instability in some REDCap environments, you can render a
+standalone match view page and pass the identifier in the URL:
+
+```
+.../modules/core_pub_match_v1.0.0/pages/survey_match_view.php?pid=<project_id>&core_pubmatch_identifier=<record_id_or_email_or_name>
+```
+
+This page is read-only and displays matched publication cards (title/authors/journal/year/PMID).
+
+## Survey Step B (In-survey AJAX + PI review save)
+
+If a public survey link includes:
+
+- `core_pubmatch_identifier=<record_id_or_email_or_name>`
+- `cpm_sig=<sha256_hmac(identifier, public_link_secret)>` (required only if secret is set)
+
+CorePubMatch injects matched-publications cards into the survey and hides native survey fields. Data is loaded from:
+
+`ajax.php` (`cpm_action=survey_matches`, NOAUTH, JSON).
+
+Per-card save now writes:
+
+- `is_mine`
+- `pi_confidence`
+- `is_core_related`
+- `level_of_support`
+- `pi_review_date`
+- `status` = `2` (Ready for Core Review)
+- `publications_complete` = `2` (form complete)
+
+Only publications with unanswered `is_mine` are displayed in the survey card UI.
+
+## PI Email Notification (new matches)
+
+When new publications are pulled and saved, CorePubMatch sends one email per investigator (if `pi_survey_base_url` is configured) with a review link that includes their `core_pubmatch_identifier` (and optional `cpm_sig` if secret is configured).
 
 ## Example Query Behavior
 

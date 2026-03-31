@@ -11,7 +11,14 @@
     }
   ],
   "permissions": [
-    "redcap_every_page_top"
+    "redcap_every_page_top",
+    "redcap_survey_page_top"
+  ],
+  "no-auth-pages": [
+    "ajax.php",
+    "js/survey_stepb.js",
+    "survey_matches.php",
+    "pages/survey_matches.php"
   ],
   "project-settings": [
     {
@@ -36,6 +43,16 @@
       "key": "enable_cron",
       "name": "Enable cron (optional for future use)",
       "type": "checkbox"
+    },
+    {
+      "key": "public_link_secret",
+      "name": "Public survey link secret (optional, for signature validation)",
+      "type": "text"
+    },
+    {
+      "key": "pi_survey_base_url",
+      "name": "PI survey base URL for review emails (optional)",
+      "type": "text"
     }
   ]
 }
