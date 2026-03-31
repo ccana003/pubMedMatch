@@ -95,7 +95,10 @@ HTML;
                 return;
             }
 
-            $apiBase = htmlspecialchars($this->getUrl('ajax.php', true, true), ENT_QUOTES);
+            $apiBase = htmlspecialchars(
+                APP_PATH_WEBROOT . 'ExternalModules/?prefix=' . rawurlencode($this->PREFIX) . '&page=ajax.php&NOAUTH',
+                ENT_QUOTES
+            );
             $scriptUrl = htmlspecialchars($this->getUrl('js/survey_stepb.js'), ENT_QUOTES);
             $identifierEscaped = htmlspecialchars($identifier, ENT_QUOTES);
             $sigEscaped = htmlspecialchars($sig, ENT_QUOTES);
