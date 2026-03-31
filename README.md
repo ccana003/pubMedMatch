@@ -35,6 +35,7 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
    - `CorePubMatch.php`
    - `pages/run_pubmed.php`
    - `pages/survey_ajax.php`
+   - `pages/debug_corepubmatch.php`
    - `js/pubmed.js`
 3. In REDCap Control Center:
    - Go to **External Modules**.
@@ -82,6 +83,26 @@ When `core_pubmatch_identifier` is present:
 4. Each selection saves instantly to the repeating publication row `status` field.
 
 This expects publication rows to be in the repeating instrument that contains `pmid` and `status`.
+
+## Debugging Survey AJAX
+
+CorePubMatch now writes survey AJAX errors to:
+
+```
+<module-root>/corepubmatch_debug.log
+```
+
+You can also open the diagnostics page (while authenticated):
+
+```
+<module-url>/pages/debug_corepubmatch.php&pid=<project_id>
+```
+
+For extra request logging on the survey AJAX endpoint, append:
+
+```
+&core_pubmatch_debug=1
+```
 
 ## Example Query Behavior
 

@@ -8,6 +8,7 @@
 
 $action = trim((string) ($_GET['action'] ?? ''));
 $projectId = isset($_GET['pid']) ? (int) $_GET['pid'] : 0;
+$debugEnabled = isset($_GET['core_pubmatch_debug']) && (string) $_GET['core_pubmatch_debug'] === '1';
 
 http_response_code(200);
 header('Content-Type: application/json');
@@ -15,6 +16,17 @@ header('Content-Type: application/json');
 $respond = static function (int $status, array $payload): void {
     http_response_code($status);
     echo json_encode($payload);
+};
+
+$logDebug = static function (string $message, array $context = []) use ($projectId): void {
+    $logPath = dirname(__DIR__) . '/corepubmatch_debug.log';
+    $line = '[' . gmdate('Y-m-d H:i:s') . ' UTC] ';
+    $line .= 'pid=' . $projectId . ' ' . $message;
+    if (!empty($context)) {
+        $line .= ' ' . json_encode($context);
+    }
+    $line .= PHP_EOL;
+    @file_put_contents($logPath, $line, FILE_APPEND);
 };
 
 try {
@@ -35,6 +47,9 @@ try {
         $respond(200, [
             'matches' => $module->getSurveyMatches($projectId, $identifier),
         ]);
+        if ($debugEnabled) {
+            $logDebug('survey_matches ok', ['identifier' => $identifier]);
+        }
         return;
     }
 
@@ -58,10 +73,19 @@ try {
         }
 
         $respond(200, ['ok' => true]);
+        if ($debugEnabled) {
+            $logDebug('save_survey_match ok', ['record_id' => $recordId, 'instance' => $instance, 'status' => $status]);
+        }
         return;
     }
 
     throw new RuntimeException('Unknown action.');
 } catch (Throwable $e) {
+    $logDebug('survey_ajax error', [
+        'action' => $action,
+        'message' => $e->getMessage(),
+        'query' => $_GET,
+        'post' => $_POST,
+    ]);
     $respond(400, ['error' => $e->getMessage()]);
 }
