@@ -14,6 +14,9 @@
     "redcap_every_page_top",
     "redcap_survey_page_top"
   ],
+  "no-auth-pages": [
+    "pages/survey_matches.php"
+  ],
   "project-settings": [
     {
       "key": "investigator_names",
