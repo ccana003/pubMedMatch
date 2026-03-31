@@ -15,6 +15,7 @@
     "redcap_survey_page_top"
   ],
   "no-auth-pages": [
+    "survey_matches.php",
     "pages/survey_matches.php"
   ],
   "project-settings": [

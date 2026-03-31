@@ -32,6 +32,7 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
 2. Copy all files from this repository into that directory:
    - `config.json`
    - `CorePubMatch.php`
+   - `survey_matches.php`
    - `pages/run_pubmed.php`
    - `pages/survey_matches.php`
    - `pages/survey_match_view.php`

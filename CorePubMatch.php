@@ -97,7 +97,7 @@ HTML;
 
             $endpointUrl = htmlspecialchars(
                 APP_PATH_WEBROOT . 'ExternalModules/?prefix=' . rawurlencode($this->PREFIX)
-                . '&page=pages/survey_matches.php'
+                . '&page=survey_matches.php'
                 . '&NOAUTH&pid=' . $projectId
                 . '&core_pubmatch_identifier=' . rawurlencode($identifier)
                 . '&s=' . rawurlencode($surveyHash)
