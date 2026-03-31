@@ -141,21 +141,43 @@
         return '';
     }
 
+    function buildEndpointUrls(action, identifier) {
+        var primary = new URL(window.CorePubMatchSurvey.apiBase, window.location.origin);
+        primary.searchParams.set('NOAUTH', '1');
+        primary.searchParams.set('pid', window.CorePubMatchSurvey.pid || '');
+        primary.searchParams.set('core_pubmatch_identifier', identifier || '');
+        primary.searchParams.set('s', window.CorePubMatchSurvey.surveyHash || '');
+        primary.searchParams.set('cpm_sig', window.CorePubMatchSurvey.sig || '');
+        if (action) {
+            primary.searchParams.set('cpm_action', action);
+        } else {
+            primary.searchParams.delete('cpm_action');
+        }
+
+        var secondary = new URL(primary.toString());
+        secondary.searchParams.set('page', 'survey_matches.php');
+        if (action) {
+            secondary.searchParams.set('cpm_action', action);
+        } else {
+            secondary.searchParams.delete('cpm_action');
+        }
+
+        var tertiary = new URL(primary.toString());
+        tertiary.searchParams.set('page', 'pages/survey_matches.php');
+        if (action) {
+            tertiary.searchParams.set('cpm_action', action);
+        } else {
+            tertiary.searchParams.delete('cpm_action');
+        }
+
+        return [primary.toString(), secondary.toString(), tertiary.toString()];
+    }
+
     async function saveReview(card, match, identifier) {
         var status = card.querySelector('.cpm-save-status');
         status.textContent = 'Saving...';
 
         try {
-            var primary = new URL(window.CorePubMatchSurvey.apiBase, window.location.origin);
-            primary.searchParams.set('cpm_action', 'save_review');
-            primary.searchParams.set('pid', window.CorePubMatchSurvey.pid || '');
-            primary.searchParams.set('core_pubmatch_identifier', identifier || '');
-            primary.searchParams.set('s', window.CorePubMatchSurvey.surveyHash || '');
-            primary.searchParams.set('cpm_sig', window.CorePubMatchSurvey.sig || '');
-
-            var secondary = new URL(primary.toString());
-            secondary.searchParams.set('page', 'pages/survey_matches.php');
-
             var body = {
                 record_id: match.record_id || '',
                 instance: parseInt(match.instance || '0', 10),
@@ -166,14 +188,14 @@
                 pi_review_date: card.querySelector('.cpm-review-date').value || todayDate()
             };
 
-            var urls = [primary.toString(), secondary.toString()];
+            var urls = buildEndpointUrls('save_review', identifier || '');
             var payload = null;
             var lastErr = null;
             for (var i = 0; i < urls.length; i++) {
                 try {
                     var response = await fetch(urls[i], {
                         method: 'POST',
-                        credentials: 'same-origin',
+                        credentials: 'omit',
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify(body)
                     });
@@ -210,18 +232,7 @@
         }
 
         try {
-            var primary = new URL(window.CorePubMatchSurvey.apiBase, window.location.origin);
-            primary.searchParams.set('cpm_action', 'survey_matches');
-            primary.searchParams.set('pid', window.CorePubMatchSurvey.pid || '');
-            primary.searchParams.set('core_pubmatch_identifier', window.CorePubMatchSurvey.identifier || '');
-            primary.searchParams.set('s', window.CorePubMatchSurvey.surveyHash || '');
-            primary.searchParams.set('cpm_sig', window.CorePubMatchSurvey.sig || '');
-
-            var secondary = new URL(primary.toString());
-            secondary.searchParams.delete('cpm_action');
-            secondary.searchParams.set('page', 'pages/survey_matches.php');
-
-            var urls = [primary.toString(), secondary.toString()];
+            var urls = buildEndpointUrls('survey_matches', window.CorePubMatchSurvey.identifier || '');
             var payload = null;
             var lastError = null;
 
@@ -229,7 +240,7 @@
                 try {
                     var response = await fetch(urls[i], {
                         method: 'GET',
-                        credentials: 'same-origin',
+                        credentials: 'omit',
                         headers: { 'Accept': 'application/json' }
                     });
                     var rawText = await response.text();
