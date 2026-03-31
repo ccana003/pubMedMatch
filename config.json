@@ -11,8 +11,7 @@
     }
   ],
   "permissions": [
-    "redcap_every_page_top",
-    "redcap_module_ajax"
+    "redcap_every_page_top"
   ],
   "project-settings": [
     {

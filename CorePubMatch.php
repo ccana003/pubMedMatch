@@ -59,51 +59,6 @@ HTML;
     }
 
     /**
-     * AJAX endpoint for survey match UI.
-     */
-    public function redcap_module_ajax($action, $payload, $project_id, $record, $instrument, $event_id, $repeat_instance): array
-    {
-        if ((int) $project_id < 1) {
-            return ['error' => 'Missing project context.'];
-        }
-
-        if ($action === 'survey_matches') {
-            $identifier = trim((string) ($_GET['core_pubmatch_identifier'] ?? ''));
-            if ($identifier === '') {
-                return ['error' => 'Missing identifier.'];
-            }
-
-            return [
-                'matches' => $this->getSurveyMatches((int) $project_id, $identifier),
-            ];
-        }
-
-        if ($action === 'save_survey_match') {
-            $raw = file_get_contents('php://input');
-            $decoded = json_decode((string) $raw, true);
-            if (!is_array($decoded)) {
-                return ['error' => 'Invalid payload.'];
-            }
-
-            $recordId = trim((string) ($decoded['record_id'] ?? ''));
-            $instance = (int) ($decoded['instance'] ?? 0);
-            $status = trim((string) ($decoded['status'] ?? ''));
-            if ($recordId === '' || $instance < 1 || !in_array($status, ['0', '1', '2'], true)) {
-                return ['error' => 'Invalid save parameters.'];
-            }
-
-            $saveResult = $this->saveSurveyMatchStatus((int) $project_id, $recordId, $instance, $status);
-            if (!empty($saveResult['errors'])) {
-                return ['error' => implode(' | ', $saveResult['errors'])];
-            }
-
-            return ['ok' => true];
-        }
-
-        return ['error' => 'Unknown action.'];
-    }
-
-    /**
      * Run PubMed ingestion and return ingestion summary.
      */
     public function runPubMedIngestionWithResult(int $project_id): array
@@ -1205,8 +1160,8 @@ HTML;
             return;
         }
 
-        $ajaxMatchesUrl = htmlspecialchars($this->getUrl('index.php') . '&NOAUTH&action=survey_matches&core_pubmatch_identifier=' . rawurlencode($identifier) . '&pid=' . $projectId, ENT_QUOTES);
-        $ajaxSaveUrl = htmlspecialchars($this->getUrl('index.php') . '&NOAUTH&action=save_survey_match&pid=' . $projectId, ENT_QUOTES);
+        $ajaxMatchesUrl = htmlspecialchars($this->getUrl('pages/survey_ajax.php') . '&NOAUTH&action=survey_matches&core_pubmatch_identifier=' . rawurlencode($identifier) . '&pid=' . $projectId, ENT_QUOTES);
+        $ajaxSaveUrl = htmlspecialchars($this->getUrl('pages/survey_ajax.php') . '&NOAUTH&action=save_survey_match&pid=' . $projectId, ENT_QUOTES);
         $scriptUrl = htmlspecialchars($this->getUrl('js/survey_match.js'), ENT_QUOTES);
         $identifierEscaped = htmlspecialchars($identifier, ENT_QUOTES);
 
@@ -1226,7 +1181,7 @@ HTML;
     /**
      * Build survey match cards for a piped identifier.
      */
-    private function getSurveyMatches(int $projectId, string $identifier): array
+    public function getSurveyMatches(int $projectId, string $identifier): array
     {
         $json = REDCap::getData([
             'project_id' => $projectId,
@@ -1309,7 +1264,7 @@ HTML;
     /**
      * Persist per-publication survey status to repeating publication rows.
      */
-    private function saveSurveyMatchStatus(int $projectId, string $recordId, int $instance, string $status): array
+    public function saveSurveyMatchStatus(int $projectId, string $recordId, int $instance, string $status): array
     {
         $fieldMetadata = $this->getProjectFieldMetadata($projectId);
         $publicationForm = isset($fieldMetadata['pmid'])
