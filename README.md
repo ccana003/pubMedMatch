@@ -57,6 +57,7 @@ After enabling the module for a project, configure these project settings:
 - **End date** (`end_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
 - **Enable cron** (`enable_cron`, checkbox): optional future-use flag.
 - **Public survey link secret** (`public_link_secret`, text): optional HMAC secret for public survey signature validation (`cpm_sig`).
+- **PI survey base URL for review emails** (`pi_survey_base_url`, text): optional full survey link base used to email investigators after new matches are saved.
 
 ## Running PubMed Sync
 
@@ -106,6 +107,12 @@ Per-card save now writes:
 - `level_of_support`
 - `pi_review_date`
 - `status` = `2` (Ready for Core Review)
+
+Only publications with unanswered `is_mine` are displayed in the survey card UI.
+
+## PI Email Notification (new matches)
+
+When new publications are pulled and saved, CorePubMatch sends one email per investigator (if `pi_survey_base_url` is configured) with a review link that includes their `core_pubmatch_identifier` (and optional `cpm_sig` if secret is configured).
 
 ## Example Query Behavior
 

@@ -48,6 +48,11 @@
       "key": "public_link_secret",
       "name": "Public survey link secret (optional, for signature validation)",
       "type": "text"
+    },
+    {
+      "key": "pi_survey_base_url",
+      "name": "PI survey base URL for review emails (optional)",
+      "type": "text"
     }
   ]
 }

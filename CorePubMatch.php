@@ -160,6 +160,8 @@ HTML;
             'error_stage' => null,
             'save_errors' => [],
             'fetch_error' => null,
+            'review_emails_sent' => 0,
+            'review_email_errors' => [],
         ];
 
         $allPmids = [];
@@ -228,6 +230,10 @@ HTML;
             if (!empty($debug['save_errors']) && $debug['error_stage'] === null) {
                 $debug['error_stage'] = 'save_data';
             }
+
+            $emailResult = $this->sendInvestigatorReviewEmails($project_id, $records);
+            $debug['review_emails_sent'] = (int) ($emailResult['sent'] ?? 0);
+            $debug['review_email_errors'] = (array) ($emailResult['errors'] ?? []);
         }
 
         // TODO: Add PI notification workflow.
@@ -1289,6 +1295,11 @@ HTML;
             if ($pmid === '' && $title === '') {
                 continue;
             }
+            $isMine = trim((string) ($row['is_mine'] ?? ''));
+            if ($isMine !== '') {
+                // Only show publications still pending PI ownership answer.
+                continue;
+            }
 
             $cards[] = [
                 'record_id' => $recordId,
@@ -1299,7 +1310,7 @@ HTML;
                 'journal' => trim((string) ($row['journal'] ?? '')),
                 'pub_year' => trim((string) ($row['pub_year'] ?? '')),
                 'matched_investigator' => trim((string) ($recordToInvestigator[$recordId] ?? '')),
-                'is_mine' => trim((string) ($row['is_mine'] ?? '')),
+                'is_mine' => $isMine,
                 'pi_confidence' => trim((string) ($row['pi_confidence'] ?? '')),
                 'is_core_related' => trim((string) ($row['is_core_related'] ?? '')),
                 'level_of_support' => trim((string) ($row['level_of_support'] ?? '')),
@@ -1308,6 +1319,70 @@ HTML;
         }
 
         return $cards;
+    }
+
+    /**
+     * Send one PI-review email per investigator for newly matched publications.
+     */
+    private function sendInvestigatorReviewEmails(int $projectId, array $records): array
+    {
+        $baseSurveyUrl = trim((string) $this->getProjectSetting('pi_survey_base_url', $projectId));
+        if ($baseSurveyUrl === '') {
+            return ['sent' => 0, 'errors' => []];
+        }
+
+        $secret = trim((string) $this->getProjectSetting('public_link_secret', $projectId));
+        $grouped = [];
+        foreach ($records as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $name = trim((string) ($row['pi_name'] ?? ''));
+            $email = strtolower(trim((string) ($row['pi_email'] ?? '')));
+            if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                continue;
+            }
+
+            $key = $name . '|' . $email;
+            if (isset($grouped[$key])) {
+                continue;
+            }
+
+            $identifier = $this->generateInvestigatorRecordId($name, $email);
+            $link = $baseSurveyUrl
+                . (strpos($baseSurveyUrl, '?') === false ? '?' : '&')
+                . 'core_pubmatch_identifier=' . rawurlencode($identifier);
+            if ($secret !== '') {
+                $sig = hash_hmac('sha256', $identifier, $secret);
+                $link .= '&cpm_sig=' . rawurlencode($sig);
+            }
+
+            $grouped[$key] = [
+                'name' => $name,
+                'email' => $email,
+                'link' => $link,
+            ];
+        }
+
+        $sent = 0;
+        $errors = [];
+        foreach ($grouped as $entry) {
+            $to = $entry['email'];
+            $subject = 'CorePubMatch: publications pending your review';
+            $body = "Hello " . ($entry['name'] !== '' ? $entry['name'] : 'Investigator') . ",\n\n"
+                . "New publications were matched and need your review.\n\n"
+                . "Review link:\n" . $entry['link'] . "\n\n"
+                . "Thank you.";
+            $ok = REDCap::email('', $to, 'CorePubMatch', $subject, $body);
+            if ($ok) {
+                $sent++;
+            } else {
+                $errors[] = 'Failed to send email to ' . $to;
+            }
+        }
+
+        return ['sent' => $sent, 'errors' => $errors];
     }
 
     /**
