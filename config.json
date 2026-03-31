@@ -16,6 +16,7 @@
   ],
   "no-auth-pages": [
     "ajax.php",
+    "js/survey_stepb.js",
     "survey_matches.php",
     "pages/survey_matches.php"
   ],

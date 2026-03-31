@@ -99,7 +99,10 @@ HTML;
                 APP_PATH_WEBROOT . 'ExternalModules/?prefix=' . rawurlencode($this->PREFIX) . '&page=ajax.php&NOAUTH',
                 ENT_QUOTES
             );
-            $scriptUrl = htmlspecialchars($this->getUrl('js/survey_stepb.js'), ENT_QUOTES);
+            $scriptUrl = htmlspecialchars(
+                APP_PATH_WEBROOT . 'ExternalModules/?prefix=' . rawurlencode($this->PREFIX) . '&page=js/survey_stepb.js&NOAUTH',
+                ENT_QUOTES
+            );
             $identifierEscaped = htmlspecialchars($identifier, ENT_QUOTES);
             $sigEscaped = htmlspecialchars($sig, ENT_QUOTES);
             $surveyHashEscaped = htmlspecialchars($surveyHash, ENT_QUOTES);
