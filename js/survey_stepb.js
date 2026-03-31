@@ -60,7 +60,7 @@
     }
 
     async function init() {
-        if (!window.CorePubMatchSurvey || !window.CorePubMatchSurvey.endpointUrl) {
+        if (!window.CorePubMatchSurvey || !window.CorePubMatchSurvey.apiBase) {
             return;
         }
 
@@ -73,7 +73,14 @@
         }
 
         try {
-            var response = await fetch(window.CorePubMatchSurvey.endpointUrl, {
+            var u = new URL(window.CorePubMatchSurvey.apiBase);
+            u.searchParams.set('cpm_action', 'survey_matches');
+            u.searchParams.set('pid', window.CorePubMatchSurvey.pid || '');
+            u.searchParams.set('core_pubmatch_identifier', window.CorePubMatchSurvey.identifier || '');
+            u.searchParams.set('s', window.CorePubMatchSurvey.surveyHash || '');
+            u.searchParams.set('cpm_sig', window.CorePubMatchSurvey.sig || '');
+
+            var response = await fetch(u.toString(), {
                 method: 'GET',
                 credentials: 'same-origin',
                 headers: { 'Accept': 'application/json' }

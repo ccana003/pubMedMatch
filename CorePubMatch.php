@@ -95,24 +95,21 @@ HTML;
                 return;
             }
 
-            $endpointUrl = htmlspecialchars(
-                APP_PATH_WEBROOT . 'ExternalModules/?prefix=' . rawurlencode($this->PREFIX)
-                . '&page=survey_matches.php'
-                . '&NOAUTH&pid=' . $projectId
-                . '&core_pubmatch_identifier=' . rawurlencode($identifier)
-                . '&s=' . rawurlencode($surveyHash)
-                . '&cpm_sig=' . rawurlencode($sig),
-                ENT_QUOTES
-            );
+            $apiBase = htmlspecialchars($this->getUrl('ajax.php', true, true), ENT_QUOTES);
             $scriptUrl = htmlspecialchars($this->getUrl('js/survey_stepb.js'), ENT_QUOTES);
             $identifierEscaped = htmlspecialchars($identifier, ENT_QUOTES);
+            $sigEscaped = htmlspecialchars($sig, ENT_QUOTES);
+            $surveyHashEscaped = htmlspecialchars($surveyHash, ENT_QUOTES);
 
             echo <<<HTML
 <div id="core-pubmatch-survey-root" data-identifier="{$identifierEscaped}"></div>
 <script>
 window.CorePubMatchSurvey = {
-  endpointUrl: "{$endpointUrl}",
-  identifier: "{$identifierEscaped}"
+  apiBase: "{$apiBase}",
+  pid: "{$projectId}",
+  identifier: "{$identifierEscaped}",
+  surveyHash: "{$surveyHashEscaped}",
+  sig: "{$sigEscaped}"
 };
 </script>
 <script src="{$scriptUrl}"></script>

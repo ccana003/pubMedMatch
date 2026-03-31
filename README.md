@@ -32,6 +32,7 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
 2. Copy all files from this repository into that directory:
    - `config.json`
    - `CorePubMatch.php`
+   - `ajax.php`
    - `survey_matches.php`
    - `pages/run_pubmed.php`
    - `pages/survey_matches.php`
@@ -95,7 +96,7 @@ If a public survey link includes:
 
 CorePubMatch injects a read-only matched-publications card UI into the survey and hides native survey fields. Data is loaded from:
 
-`pages/survey_matches.php` (NOAUTH, JSON).
+`ajax.php` (`cpm_action=survey_matches`, NOAUTH, JSON).
 
 ## Example Query Behavior
 
