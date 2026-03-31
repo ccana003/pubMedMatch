@@ -73,7 +73,7 @@
         }
 
         try {
-            var u = new URL(window.CorePubMatchSurvey.apiBase);
+            var u = new URL(window.CorePubMatchSurvey.apiBase, window.location.origin);
             u.searchParams.set('cpm_action', 'survey_matches');
             u.searchParams.set('pid', window.CorePubMatchSurvey.pid || '');
             u.searchParams.set('core_pubmatch_identifier', window.CorePubMatchSurvey.identifier || '');
