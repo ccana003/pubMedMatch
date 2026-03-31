@@ -189,3 +189,7 @@ The code includes TODO markers for:
 - Core adjudication UI.
 - Scheduled cron execution.
 - Email batching.
+
+## License
+
+This project is licensed under the MIT License. See [`LICENSE`](LICENSE) for details.
