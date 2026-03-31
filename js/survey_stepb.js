@@ -78,7 +78,13 @@
                 credentials: 'same-origin',
                 headers: { 'Accept': 'application/json' }
             });
-            var payload = await response.json();
+            var rawText = await response.text();
+            var payload;
+            try {
+                payload = JSON.parse(rawText);
+            } catch (parseError) {
+                throw new Error('Non-JSON response from survey endpoint: ' + rawText.slice(0, 200));
+            }
             if (!response.ok || payload.error) {
                 throw new Error(payload.error || 'Failed to load matches.');
             }
