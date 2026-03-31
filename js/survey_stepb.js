@@ -146,12 +146,15 @@
         status.textContent = 'Saving...';
 
         try {
-            var u = new URL(window.CorePubMatchSurvey.apiBase, window.location.origin);
-            u.searchParams.set('cpm_action', 'save_review');
-            u.searchParams.set('pid', window.CorePubMatchSurvey.pid || '');
-            u.searchParams.set('core_pubmatch_identifier', identifier || '');
-            u.searchParams.set('s', window.CorePubMatchSurvey.surveyHash || '');
-            u.searchParams.set('cpm_sig', window.CorePubMatchSurvey.sig || '');
+            var primary = new URL(window.CorePubMatchSurvey.apiBase, window.location.origin);
+            primary.searchParams.set('cpm_action', 'save_review');
+            primary.searchParams.set('pid', window.CorePubMatchSurvey.pid || '');
+            primary.searchParams.set('core_pubmatch_identifier', identifier || '');
+            primary.searchParams.set('s', window.CorePubMatchSurvey.surveyHash || '');
+            primary.searchParams.set('cpm_sig', window.CorePubMatchSurvey.sig || '');
+
+            var secondary = new URL(primary.toString());
+            secondary.searchParams.set('page', 'pages/survey_matches.php');
 
             var body = {
                 record_id: match.record_id || '',
@@ -163,16 +166,27 @@
                 pi_review_date: card.querySelector('.cpm-review-date').value || todayDate()
             };
 
-            var response = await fetch(u.toString(), {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify(body)
-            });
-
-            var raw = await response.text();
-            var payload = JSON.parse(raw);
-            if (!response.ok || payload.error) throw new Error(payload.error || 'Save failed.');
+            var urls = [primary.toString(), secondary.toString()];
+            var payload = null;
+            var lastErr = null;
+            for (var i = 0; i < urls.length; i++) {
+                try {
+                    var response = await fetch(urls[i], {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    var raw = await response.text();
+                    payload = JSON.parse(raw);
+                    if (!response.ok || payload.error) throw new Error(payload.error || 'Save failed.');
+                    break;
+                } catch (e) {
+                    lastErr = e;
+                    payload = null;
+                }
+            }
+            if (!payload) throw lastErr || new Error('Save failed.');
             status.textContent = 'Saved';
         } catch (e) {
             status.textContent = 'Save failed: ' + e.message;
