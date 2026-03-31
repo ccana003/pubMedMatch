@@ -21,7 +21,7 @@ class CorePubMatch extends AbstractExternalModule
     /**
      * Inject a Run PubMed Sync button on Project Setup.
      */
-    public function redcap_every_page_top($project_id = null): void
+    public function redcap_every_page_top($project_id = null)
     {
         if (empty($project_id)) {
             return;
