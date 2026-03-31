@@ -70,20 +70,6 @@ If rendering on Project Setup fails unexpectedly, CorePubMatch now writes best-e
 - PHP `error_log`
 - `<module-root>/corepubmatch_runtime.log`
 
-## Survey Card UI (Step A: Read-only)
-
-CorePubMatch can now render matched publications as read-only cards on survey pages when an identifier is piped in:
-
-```
-.../surveys/?s=XXXX&core_pubmatch_identifier=<record_id_or_email_or_name>
-```
-
-Current Step A behavior:
-
-- Hides native survey fields
-- Renders matched publication cards (title/authors/journal/year/PMID)
-- Does **not** save adjudication responses yet (save comes in a later step)
-
 ## Example Query Behavior
 
 For each investigator name, the module constructs a PubMed query like:
