@@ -1237,6 +1237,11 @@ HTML;
                 'authors',
                 'journal',
                 'pub_year',
+                'is_mine',
+                'pi_confidence',
+                'is_core_related',
+                'level_of_support',
+                'pi_review_date',
             ],
         ]);
 
@@ -1247,6 +1252,7 @@ HTML;
 
         $identifierLower = strtolower($identifier);
         $recordIds = [];
+        $recordToInvestigator = [];
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
@@ -1259,6 +1265,9 @@ HTML;
 
             $investigatorEmail = strtolower(trim((string) ($row['investigator_email'] ?? '')));
             $investigatorName = strtolower(trim((string) ($row['investigator_name'] ?? '')));
+            if (!isset($recordToInvestigator[$recordId])) {
+                $recordToInvestigator[$recordId] = trim((string) ($row['investigator_name'] ?? ''));
+            }
             if ($recordId === $identifier || $investigatorEmail === $identifierLower || $investigatorName === $identifierLower) {
                 $recordIds[$recordId] = true;
             }
@@ -1282,15 +1291,57 @@ HTML;
             }
 
             $cards[] = [
+                'record_id' => $recordId,
+                'instance' => trim((string) ($row['redcap_repeat_instance'] ?? '')),
                 'pmid' => $pmid,
                 'title' => $title,
                 'authors' => trim((string) ($row['authors'] ?? '')),
                 'journal' => trim((string) ($row['journal'] ?? '')),
                 'pub_year' => trim((string) ($row['pub_year'] ?? '')),
+                'matched_investigator' => trim((string) ($recordToInvestigator[$recordId] ?? '')),
+                'is_mine' => trim((string) ($row['is_mine'] ?? '')),
+                'pi_confidence' => trim((string) ($row['pi_confidence'] ?? '')),
+                'is_core_related' => trim((string) ($row['is_core_related'] ?? '')),
+                'level_of_support' => trim((string) ($row['level_of_support'] ?? '')),
+                'pi_review_date' => trim((string) ($row['pi_review_date'] ?? '')),
             ];
         }
 
         return $cards;
+    }
+
+    /**
+     * Persist PI review fields on a repeating publication instance.
+     */
+    public function saveSurveyReviewValues(int $projectId, string $recordId, int $instance, array $values): array
+    {
+        if ($projectId < 1 || $recordId === '' || $instance < 1) {
+            return ['errors' => ['Invalid save parameters.']];
+        }
+
+        $fieldMetadata = $this->getProjectFieldMetadata($projectId);
+        $publicationForm = isset($fieldMetadata['pmid'])
+            ? (string) ($fieldMetadata['pmid']['form_name'] ?? 'publications')
+            : 'publications';
+
+        $payload = [[
+            'record_id' => $recordId,
+            'redcap_repeat_instrument' => $publicationForm,
+            'redcap_repeat_instance' => (string) $instance,
+            'is_mine' => (string) ($values['is_mine'] ?? ''),
+            'pi_confidence' => (string) ($values['pi_confidence'] ?? ''),
+            'is_core_related' => (string) ($values['is_core_related'] ?? ''),
+            'level_of_support' => (string) ($values['level_of_support'] ?? ''),
+            'pi_review_date' => (string) ($values['pi_review_date'] ?? date('Y-m-d')),
+        ]];
+
+        $result = REDCap::saveData($projectId, 'json', json_encode($payload));
+        $errors = [];
+        if (is_array($result) && !empty($result['errors']) && is_array($result['errors'])) {
+            $errors = array_values(array_filter(array_map('trim', $result['errors'])));
+        }
+
+        return ['errors' => $errors];
     }
 
     /**

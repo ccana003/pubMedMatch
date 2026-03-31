@@ -42,21 +42,134 @@
                 '<div class="cpm-sub">Publication ' + (idx + 1) + '</div>' +
                 '<div class="cpm-title"></div>' +
                 '<div class="cpm-sub"></div>' +
-                '<div class="cpm-sub"></div>';
+                '<div class="cpm-sub"></div>' +
+                '<div class="cpm-sub cpm-investigator"></div>' +
+                '<div class="cpm-review"></div>' +
+                '<button type="button" class="cpm-save">Save review</button>' +
+                '<div class="cpm-sub cpm-save-status"></div>';
 
             card.querySelector('.cpm-title').textContent = m.title || '(Untitled publication)';
-            card.querySelectorAll('.cpm-sub')[1].textContent = m.authors || '';
+            var highlightedAuthors = highlightName(m.authors || '', m.matched_investigator || '');
+            card.querySelectorAll('.cpm-sub')[1].innerHTML = highlightedAuthors;
 
             var line = '';
             if (m.journal) line += m.journal;
             if (m.pub_year) line += (line ? ' (' + m.pub_year + ')' : m.pub_year);
             if (m.pmid) line += (line ? ' • PMID: ' + m.pmid : 'PMID: ' + m.pmid);
             card.querySelectorAll('.cpm-sub')[2].textContent = line;
+            card.querySelector('.cpm-investigator').innerHTML = '<strong>Matched investigator:</strong> ' + escapeHtml(m.matched_investigator || '');
+
+            var review = card.querySelector('.cpm-review');
+            review.innerHTML = [
+                '<label>Is this yours? ',
+                '<select class="cpm-is-mine"><option value=""></option><option value="1">Yes</option><option value="0">No</option></select></label> ',
+                '<label>PI confidence ',
+                '<select class="cpm-pi-confidence"><option value=""></option><option value="1">Low</option><option value="2">Medium</option><option value="3">High</option></select></label> ',
+                '<label>Core related? ',
+                '<label><input type="radio" name="core_' + idx + '" class="cpm-core-related" value="1"> Yes</label> ',
+                '<label><input type="radio" name="core_' + idx + '" class="cpm-core-related" value="0"> No</label> ',
+                '<label>Level of support ',
+                '<label><input type="radio" name="support_' + idx + '" class="cpm-level-support" value="1"> Low</label> ',
+                '<label><input type="radio" name="support_' + idx + '" class="cpm-level-support" value="2"> Medium</label> ',
+                '<label><input type="radio" name="support_' + idx + '" class="cpm-level-support" value="3"> High</label> ',
+                '<label>PI review date <input type="date" class="cpm-review-date"></label>'
+            ].join('');
+
+            card.querySelector('.cpm-is-mine').value = m.is_mine || '';
+            card.querySelector('.cpm-pi-confidence').value = m.pi_confidence || '';
+            checkRadio(card, '.cpm-core-related', m.is_core_related || '');
+            checkRadio(card, '.cpm-level-support', m.level_of_support || '');
+            card.querySelector('.cpm-review-date').value = m.pi_review_date || todayDate();
+
+            card.querySelector('.cpm-save').addEventListener('click', function () {
+                saveReview(card, m, payload.identifier || '');
+            });
 
             wrap.appendChild(card);
         });
 
         root.appendChild(wrap);
+    }
+
+    function todayDate() {
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function escapeRegExp(s) {
+        return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function escapeHtml(s) {
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function highlightName(authors, investigator) {
+        var safeAuthors = escapeHtml(authors);
+        if (!investigator) return safeAuthors;
+        var escaped = escapeRegExp(investigator.trim());
+        if (!escaped) return safeAuthors;
+        var r = new RegExp('(' + escaped + ')', 'ig');
+        return safeAuthors.replace(r, '<mark>$1</mark>');
+    }
+
+    function checkRadio(card, selector, value) {
+        if (!value) return;
+        var radios = card.querySelectorAll(selector);
+        for (var i = 0; i < radios.length; i++) {
+            if (radios[i].value === String(value)) radios[i].checked = true;
+        }
+    }
+
+    function getRadioValue(card, selector) {
+        var radios = card.querySelectorAll(selector);
+        for (var i = 0; i < radios.length; i++) {
+            if (radios[i].checked) return radios[i].value;
+        }
+        return '';
+    }
+
+    async function saveReview(card, match, identifier) {
+        var status = card.querySelector('.cpm-save-status');
+        status.textContent = 'Saving...';
+
+        try {
+            var u = new URL(window.CorePubMatchSurvey.apiBase, window.location.origin);
+            u.searchParams.set('cpm_action', 'save_review');
+            u.searchParams.set('pid', window.CorePubMatchSurvey.pid || '');
+            u.searchParams.set('core_pubmatch_identifier', identifier || '');
+            u.searchParams.set('s', window.CorePubMatchSurvey.surveyHash || '');
+            u.searchParams.set('cpm_sig', window.CorePubMatchSurvey.sig || '');
+
+            var body = {
+                record_id: match.record_id || '',
+                instance: parseInt(match.instance || '0', 10),
+                is_mine: card.querySelector('.cpm-is-mine').value || '',
+                pi_confidence: card.querySelector('.cpm-pi-confidence').value || '',
+                is_core_related: getRadioValue(card, '.cpm-core-related'),
+                level_of_support: getRadioValue(card, '.cpm-level-support'),
+                pi_review_date: card.querySelector('.cpm-review-date').value || todayDate()
+            };
+
+            var response = await fetch(u.toString(), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(body)
+            });
+
+            var raw = await response.text();
+            var payload = JSON.parse(raw);
+            if (!response.ok || payload.error) throw new Error(payload.error || 'Save failed.');
+            status.textContent = 'Saved';
+        } catch (e) {
+            status.textContent = 'Save failed: ' + e.message;
+        }
     }
 
     async function init() {

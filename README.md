@@ -87,16 +87,24 @@ standalone match view page and pass the identifier in the URL:
 
 This page is read-only and displays matched publication cards (title/authors/journal/year/PMID).
 
-## Survey Step B (In-survey AJAX read-only)
+## Survey Step B (In-survey AJAX + PI review save)
 
 If a public survey link includes:
 
 - `core_pubmatch_identifier=<record_id_or_email_or_name>`
 - `cpm_sig=<sha256_hmac(identifier, public_link_secret)>` (required only if secret is set)
 
-CorePubMatch injects a read-only matched-publications card UI into the survey and hides native survey fields. Data is loaded from:
+CorePubMatch injects matched-publications cards into the survey and hides native survey fields. Data is loaded from:
 
 `ajax.php` (`cpm_action=survey_matches`, NOAUTH, JSON).
+
+Per-card save now writes:
+
+- `is_mine`
+- `pi_confidence`
+- `is_core_related`
+- `level_of_support`
+- `pi_review_date`
 
 ## Example Query Behavior
 
