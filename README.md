@@ -33,6 +33,7 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
    - `config.json`
    - `CorePubMatch.php`
    - `pages/run_pubmed.php`
+   - `pages/survey_match_view.php`
    - `js/pubmed.js`
    - `DEBUGGING.md`
 3. In REDCap Control Center:
@@ -69,6 +70,17 @@ If rendering on Project Setup fails unexpectedly, CorePubMatch now writes best-e
 
 - PHP `error_log`
 - `<module-root>/corepubmatch_runtime.log`
+
+## Survey Match View (Hook-independent)
+
+To avoid survey-hook instability in some REDCap environments, you can render a
+standalone match view page and pass the identifier in the URL:
+
+```
+.../modules/core_pub_match_v1.0.0/pages/survey_match_view.php?pid=<project_id>&core_pubmatch_identifier=<record_id_or_email_or_name>
+```
+
+This page is read-only and displays matched publication cards (title/authors/journal/year/PMID).
 
 ## Example Query Behavior
 

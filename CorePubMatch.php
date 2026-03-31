@@ -1145,6 +1145,87 @@ HTML;
     }
 
     /**
+     * Return publication cards for a piped identifier (record_id/email/name).
+     *
+     * This method is intentionally hook-independent so survey UX can be rendered
+     * from a dedicated page endpoint without intercepting survey hooks.
+     */
+    public function getSurveyCardsForIdentifier(int $projectId, string $identifier): array
+    {
+        $identifier = trim($identifier);
+        if ($projectId < 1 || $identifier === '') {
+            return [];
+        }
+
+        $json = REDCap::getData([
+            'project_id' => $projectId,
+            'return_format' => 'json',
+            'fields' => [
+                'record_id',
+                'investigator_name',
+                'investigator_email',
+                'pmid',
+                'title',
+                'authors',
+                'journal',
+                'pub_year',
+            ],
+        ]);
+
+        $rows = json_decode((string) $json, true);
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $identifierLower = strtolower($identifier);
+        $recordIds = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $recordId = trim((string) ($row['record_id'] ?? ''));
+            if ($recordId === '') {
+                continue;
+            }
+
+            $investigatorEmail = strtolower(trim((string) ($row['investigator_email'] ?? '')));
+            $investigatorName = strtolower(trim((string) ($row['investigator_name'] ?? '')));
+            if ($recordId === $identifier || $investigatorEmail === $identifierLower || $investigatorName === $identifierLower) {
+                $recordIds[$recordId] = true;
+            }
+        }
+
+        $cards = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $recordId = trim((string) ($row['record_id'] ?? ''));
+            if (!isset($recordIds[$recordId])) {
+                continue;
+            }
+
+            $pmid = trim((string) ($row['pmid'] ?? ''));
+            $title = trim((string) ($row['title'] ?? ''));
+            if ($pmid === '' && $title === '') {
+                continue;
+            }
+
+            $cards[] = [
+                'pmid' => $pmid,
+                'title' => $title,
+                'authors' => trim((string) ($row['authors'] ?? '')),
+                'journal' => trim((string) ($row['journal'] ?? '')),
+                'pub_year' => trim((string) ($row['pub_year'] ?? '')),
+            ];
+        }
+
+        return $cards;
+    }
+
+    /**
      * Lightweight module-side error logging to aid production debugging.
      */
     private function logModuleError(string $message, array $context = []): void
