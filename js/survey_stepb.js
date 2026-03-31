@@ -8,7 +8,7 @@
 
     function injectStyles() {
         var style = document.createElement('style');
-        style.textContent = '#core-pubmatch-survey-root .cpm-wrap{max-width:980px;margin:12px auto;padding:12px;background:#fff;border:1px solid #ddd;border-radius:6px}#core-pubmatch-survey-root .cpm-card{border:1px solid #d6d6d6;background:#fafafa;border-radius:6px;padding:12px;margin:10px 0}#core-pubmatch-survey-root .cpm-title{font-size:18px;font-weight:600;margin:0 0 6px}#core-pubmatch-survey-root .cpm-sub{font-size:13px;color:#555}#core-pubmatch-survey-root .cpm-empty{padding:10px;border:1px solid #ffd591;background:#fff7e6;border-radius:6px}';
+        style.textContent = '#core-pubmatch-survey-root .cpm-wrap{max-width:980px;margin:12px auto;padding:12px;background:#fff;border:1px solid #ddd;border-radius:6px}#core-pubmatch-survey-root .cpm-card{border:1px solid #d6d6d6;background:#fafafa;border-radius:6px;padding:12px;margin:10px 0}#core-pubmatch-survey-root .cpm-title{font-size:18px;font-weight:600;margin:0 0 6px}#core-pubmatch-survey-root .cpm-sub{font-size:13px;color:#555}#core-pubmatch-survey-root .cpm-empty{padding:10px;border:1px solid #ffd591;background:#fff7e6;border-radius:6px}#core-pubmatch-survey-root .cpm-investigator{margin-top:10px}#core-pubmatch-survey-root .cpm-review{margin-top:10px}#core-pubmatch-survey-root .cpm-review-row{margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}';
         document.head.appendChild(style);
     }
 
@@ -61,18 +61,25 @@
 
             var review = card.querySelector('.cpm-review');
             review.innerHTML = [
-                '<label>Is this yours? ',
+                '<div class="cpm-review-row">',
+                '<label>Is this your publication? ',
                 '<select class="cpm-is-mine"><option value=""></option><option value="1">Yes</option><option value="0">No</option></select></label> ',
                 '<label>PI confidence ',
                 '<select class="cpm-pi-confidence"><option value=""></option><option value="1">Low</option><option value="2">Medium</option><option value="3">High</option></select></label> ',
-                '<label>Core related? ',
+                '<label>PI review date <input type="date" class="cpm-review-date"></label>',
+                '</div>',
+                '<div class="cpm-review-row">',
+                '<label>Core related?</label> ',
                 '<label><input type="radio" name="core_' + idx + '" class="cpm-core-related" value="1"> Yes</label> ',
                 '<label><input type="radio" name="core_' + idx + '" class="cpm-core-related" value="0"> No</label> ',
-                '<label>Level of support ',
+                '<label><input type="radio" name="core_' + idx + '" class="cpm-core-related" value="2"> Maybe</label> ',
+                '</div>',
+                '<div class="cpm-review-row">',
+                '<label>Level of support</label> ',
                 '<label><input type="radio" name="support_' + idx + '" class="cpm-level-support" value="1"> Low</label> ',
                 '<label><input type="radio" name="support_' + idx + '" class="cpm-level-support" value="2"> Medium</label> ',
                 '<label><input type="radio" name="support_' + idx + '" class="cpm-level-support" value="3"> High</label> ',
-                '<label>PI review date <input type="date" class="cpm-review-date"></label>'
+                '</div>'
             ].join('');
 
             card.querySelector('.cpm-is-mine').value = m.is_mine || '';

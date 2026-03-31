@@ -105,6 +105,7 @@ Per-card save now writes:
 - `is_core_related`
 - `level_of_support`
 - `pi_review_date`
+- `status` = `2` (Ready for Core Review)
 
 ## Example Query Behavior
 
