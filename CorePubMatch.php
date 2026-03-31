@@ -63,6 +63,70 @@ HTML;
     }
 
     /**
+     * Inject Step B survey shell (public survey context).
+     */
+    public function redcap_survey_page_top(
+        $project_id,
+        $record = null,
+        $instrument = null,
+        $event_id = null,
+        $group_id = null,
+        $repeat_instance = 1
+    ): void {
+        try {
+            $projectId = (int) $project_id;
+            if ($projectId < 1) {
+                return;
+            }
+
+            $identifier = trim((string) ($_GET['core_pubmatch_identifier'] ?? ''));
+            if ($identifier === '') {
+                return;
+            }
+
+            $surveyHash = trim((string) ($_GET['s'] ?? ''));
+            if ($surveyHash === '') {
+                return;
+            }
+
+            $sig = trim((string) ($_GET['cpm_sig'] ?? ''));
+            if (!$this->isValidPublicSurveySignature($projectId, $identifier, $sig)) {
+                echo '<div style="margin:10px 0;color:#b00020;">CorePubMatch: invalid survey signature.</div>';
+                return;
+            }
+
+            $endpointUrl = htmlspecialchars(
+                $this->getUrl('pages/survey_matches.php')
+                . '&NOAUTH&pid=' . $projectId
+                . '&core_pubmatch_identifier=' . rawurlencode($identifier)
+                . '&s=' . rawurlencode($surveyHash)
+                . '&cpm_sig=' . rawurlencode($sig),
+                ENT_QUOTES
+            );
+            $scriptUrl = htmlspecialchars($this->getUrl('js/survey_stepb.js'), ENT_QUOTES);
+            $identifierEscaped = htmlspecialchars($identifier, ENT_QUOTES);
+
+            echo <<<HTML
+<div id="core-pubmatch-survey-root" data-identifier="{$identifierEscaped}"></div>
+<script>
+window.CorePubMatchSurvey = {
+  endpointUrl: "{$endpointUrl}",
+  identifier: "{$identifierEscaped}"
+};
+</script>
+<script src="{$scriptUrl}"></script>
+HTML;
+        } catch (\Throwable $e) {
+            $this->logModuleError('redcap_survey_page_top failed', [
+                'project_id' => $project_id,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+        }
+    }
+
+    /**
      * Run PubMed ingestion and return ingestion summary.
      */
     public function runPubMedIngestionWithResult(int $project_id): array
@@ -1223,6 +1287,25 @@ HTML;
         }
 
         return $cards;
+    }
+
+    /**
+     * Optional signature check for public survey links.
+     */
+    public function isValidPublicSurveySignature(int $projectId, string $identifier, string $sig): bool
+    {
+        $secret = trim((string) $this->getProjectSetting('public_link_secret', $projectId));
+        if ($secret === '') {
+            // Backward-compatible: if no secret set, do not enforce signature.
+            return true;
+        }
+
+        if ($sig === '') {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', $identifier, $secret);
+        return hash_equals($expected, $sig);
     }
 
     /**

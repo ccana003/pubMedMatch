@@ -33,8 +33,10 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
    - `config.json`
    - `CorePubMatch.php`
    - `pages/run_pubmed.php`
+   - `pages/survey_matches.php`
    - `pages/survey_match_view.php`
    - `js/pubmed.js`
+   - `js/survey_stepb.js`
    - `DEBUGGING.md`
 3. In REDCap Control Center:
    - Go to **External Modules**.
@@ -52,6 +54,7 @@ After enabling the module for a project, configure these project settings:
 - **Start date** (`start_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
 - **End date** (`end_date`, text): `YYYY-MM-DD` or `YYYY/MM/DD`.
 - **Enable cron** (`enable_cron`, checkbox): optional future-use flag.
+- **Public survey link secret** (`public_link_secret`, text): optional HMAC secret for public survey signature validation (`cpm_sig`).
 
 ## Running PubMed Sync
 
@@ -81,6 +84,17 @@ standalone match view page and pass the identifier in the URL:
 ```
 
 This page is read-only and displays matched publication cards (title/authors/journal/year/PMID).
+
+## Survey Step B (In-survey AJAX read-only)
+
+If a public survey link includes:
+
+- `core_pubmatch_identifier=<record_id_or_email_or_name>`
+- `cpm_sig=<sha256_hmac(identifier, public_link_secret)>` (required only if secret is set)
+
+CorePubMatch injects a read-only matched-publications card UI into the survey and hides native survey fields. Data is loaded from:
+
+`pages/survey_matches.php` (NOAUTH, JSON).
 
 ## Example Query Behavior
 

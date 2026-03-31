@@ -11,7 +11,8 @@
     }
   ],
   "permissions": [
-    "redcap_every_page_top"
+    "redcap_every_page_top",
+    "redcap_survey_page_top"
   ],
   "project-settings": [
     {
@@ -36,6 +37,11 @@
       "key": "enable_cron",
       "name": "Enable cron (optional for future use)",
       "type": "checkbox"
+    },
+    {
+      "key": "public_link_secret",
+      "name": "Public survey link secret (optional, for signature validation)",
+      "type": "text"
     }
   ]
 }
