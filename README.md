@@ -65,6 +65,11 @@ After enabling the module for a project, configure these project settings:
      - `Save errors: ...`
    - `Error: ...` (if an issue occurs)
 
+If rendering on Project Setup fails unexpectedly, CorePubMatch now writes best-effort runtime diagnostics to:
+
+- PHP `error_log`
+- `<module-root>/corepubmatch_runtime.log`
+
 ## Example Query Behavior
 
 For each investigator name, the module constructs a PubMed query like:

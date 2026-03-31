@@ -23,26 +23,27 @@ class CorePubMatch extends AbstractExternalModule
      */
     public function redcap_every_page_top($project_id = null): void
     {
-        if (empty($project_id)) {
-            return;
-        }
+        try {
+            if (empty($project_id)) {
+                return;
+            }
 
-        if (!$this->canRunSync($project_id)) {
-            return;
-        }
+            if (!$this->canRunSync($project_id)) {
+                return;
+            }
 
-        if (!$this->isProjectSetupPage()) {
-            return;
-        }
+            if (!$this->isProjectSetupPage()) {
+                return;
+            }
 
-        $runUrl = htmlspecialchars($this->getUrl('pages/run_pubmed.php') . '&project_id=' . (int) $project_id, ENT_QUOTES);
+            $runUrl = htmlspecialchars($this->getUrl('pages/run_pubmed.php') . '&project_id=' . (int) $project_id, ENT_QUOTES);
 
-        $status = trim((string) ($_GET['core_pubmatch_status'] ?? 'Idle.'));
-        $statusType = trim((string) ($_GET['core_pubmatch_status_type'] ?? 'info'));
-        $statusColor = ($statusType === 'error') ? '#b00020' : '#555';
-        $status = htmlspecialchars($status, ENT_QUOTES);
+            $status = trim((string) ($_GET['core_pubmatch_status'] ?? 'Idle.'));
+            $statusType = trim((string) ($_GET['core_pubmatch_status_type'] ?? 'info'));
+            $statusColor = ($statusType === 'error') ? '#b00020' : '#555';
+            $status = htmlspecialchars($status, ENT_QUOTES);
 
-        echo <<<HTML
+            echo <<<HTML
 <div id="core-pubmatch-container" style="margin:15px 0;padding:12px;border:1px solid #d9d9d9;background:#fafafa;">
     <h4 style="margin-top:0;">CorePubMatch</h4>
     <form method="post" action="{$runUrl}" style="display:inline;">
@@ -51,6 +52,14 @@ class CorePubMatch extends AbstractExternalModule
     <span id="core-pubmatch-status" style="margin-left:10px;color:{$statusColor};">{$status}</span>
 </div>
 HTML;
+        } catch (\Throwable $e) {
+            $this->logModuleError('redcap_every_page_top failed', [
+                'project_id' => $project_id,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+        }
     }
 
     /**
@@ -1133,5 +1142,26 @@ HTML;
         $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
 
         return (strpos($scriptName, '/ProjectSetup/index.php') !== false);
+    }
+
+    /**
+     * Lightweight module-side error logging to aid production debugging.
+     */
+    private function logModuleError(string $message, array $context = []): void
+    {
+        $line = '[CorePubMatch ' . gmdate('Y-m-d H:i:s') . ' UTC] ' . $message;
+        if (!empty($context)) {
+            $json = json_encode($context);
+            if ($json !== false) {
+                $line .= ' ' . $json;
+            }
+        }
+
+        // Always mirror to PHP error_log.
+        error_log($line);
+
+        // Best-effort local module log.
+        $path = __DIR__ . '/corepubmatch_runtime.log';
+        @file_put_contents($path, $line . PHP_EOL, FILE_APPEND);
     }
 }
