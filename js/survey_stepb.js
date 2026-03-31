@@ -73,27 +73,47 @@
         }
 
         try {
-            var u = new URL(window.CorePubMatchSurvey.apiBase, window.location.origin);
-            u.searchParams.set('cpm_action', 'survey_matches');
-            u.searchParams.set('pid', window.CorePubMatchSurvey.pid || '');
-            u.searchParams.set('core_pubmatch_identifier', window.CorePubMatchSurvey.identifier || '');
-            u.searchParams.set('s', window.CorePubMatchSurvey.surveyHash || '');
-            u.searchParams.set('cpm_sig', window.CorePubMatchSurvey.sig || '');
+            var primary = new URL(window.CorePubMatchSurvey.apiBase, window.location.origin);
+            primary.searchParams.set('cpm_action', 'survey_matches');
+            primary.searchParams.set('pid', window.CorePubMatchSurvey.pid || '');
+            primary.searchParams.set('core_pubmatch_identifier', window.CorePubMatchSurvey.identifier || '');
+            primary.searchParams.set('s', window.CorePubMatchSurvey.surveyHash || '');
+            primary.searchParams.set('cpm_sig', window.CorePubMatchSurvey.sig || '');
 
-            var response = await fetch(u.toString(), {
-                method: 'GET',
-                credentials: 'same-origin',
-                headers: { 'Accept': 'application/json' }
-            });
-            var rawText = await response.text();
-            var payload;
-            try {
-                payload = JSON.parse(rawText);
-            } catch (parseError) {
-                throw new Error('Non-JSON response from survey endpoint: ' + rawText.slice(0, 200));
+            var secondary = new URL(primary.toString());
+            secondary.searchParams.delete('cpm_action');
+            secondary.searchParams.set('page', 'pages/survey_matches.php');
+
+            var urls = [primary.toString(), secondary.toString()];
+            var payload = null;
+            var lastError = null;
+
+            for (var i = 0; i < urls.length; i++) {
+                try {
+                    var response = await fetch(urls[i], {
+                        method: 'GET',
+                        credentials: 'same-origin',
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    var rawText = await response.text();
+                    try {
+                        payload = JSON.parse(rawText);
+                    } catch (parseError) {
+                        throw new Error('Non-JSON response from survey endpoint: ' + rawText.slice(0, 200));
+                    }
+
+                    if (!response.ok || payload.error) {
+                        throw new Error(payload.error || 'Failed to load matches.');
+                    }
+
+                    break;
+                } catch (e) {
+                    lastError = e;
+                }
             }
-            if (!response.ok || payload.error) {
-                throw new Error(payload.error || 'Failed to load matches.');
+
+            if (!payload) {
+                throw lastError || new Error('Unable to load matches.');
             }
 
             render(root, payload);
