@@ -28,6 +28,11 @@ class CorePubMatch extends AbstractExternalModule
                 return;
             }
 
+            if ($this->isSurveyPage()) {
+                $this->renderSurveyReadOnlyCards((int) $project_id);
+                return;
+            }
+
             if (!$this->canRunSync($project_id)) {
                 return;
             }
@@ -1142,6 +1147,140 @@ HTML;
         $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
 
         return (strpos($scriptName, '/ProjectSetup/index.php') !== false);
+    }
+
+    /**
+     * Check current page path for public survey.
+     */
+    private function isSurveyPage(): bool
+    {
+        $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+
+        return (strpos($scriptName, '/surveys/index.php') !== false);
+    }
+
+    /**
+     * Render read-only publication cards on survey pages.
+     */
+    private function renderSurveyReadOnlyCards(int $projectId): void
+    {
+        $identifier = trim((string) ($_GET['core_pubmatch_identifier'] ?? ''));
+        if ($identifier === '') {
+            return;
+        }
+
+        $cards = $this->getSurveyCards($projectId, $identifier);
+        $identifierEscaped = htmlspecialchars($identifier, ENT_QUOTES);
+
+        echo '<style>
+            #core-pubmatch-survey-cards .cpm-card{border:1px solid #d6d6d6;background:#fafafa;border-radius:6px;padding:12px;margin:12px 0}
+            #core-pubmatch-survey-cards .cpm-title{font-size:18px;font-weight:600;margin:0 0 6px}
+            #core-pubmatch-survey-cards .cpm-meta{font-size:13px;color:#555}
+            #core-pubmatch-survey-cards .cpm-empty{padding:12px;background:#fff7e6;border:1px solid #ffd591;border-radius:6px}
+        </style>';
+        echo '<div id="core-pubmatch-survey-cards">';
+        echo '<h3>Matched Publications</h3>';
+        echo '<div class="cpm-meta">Identifier: ' . $identifierEscaped . '</div>';
+
+        if (empty($cards)) {
+            echo '<div class="cpm-empty">No matches found for this identifier.</div>';
+        } else {
+            foreach ($cards as $index => $card) {
+                $title = htmlspecialchars((string) ($card['title'] ?? ''), ENT_QUOTES);
+                $authors = htmlspecialchars((string) ($card['authors'] ?? ''), ENT_QUOTES);
+                $journal = htmlspecialchars((string) ($card['journal'] ?? ''), ENT_QUOTES);
+                $pubYear = htmlspecialchars((string) ($card['pub_year'] ?? ''), ENT_QUOTES);
+                $pmid = htmlspecialchars((string) ($card['pmid'] ?? ''), ENT_QUOTES);
+
+                echo '<section class="cpm-card">';
+                echo '<div class="cpm-meta">Publication ' . ($index + 1) . '</div>';
+                echo '<div class="cpm-title">' . ($title !== '' ? $title : '(Untitled publication)') . '</div>';
+                echo '<div class="cpm-meta">' . $authors . '</div>';
+                echo '<div class="cpm-meta">' . $journal . ($pubYear !== '' ? ' (' . $pubYear . ')' : '') . ($pmid !== '' ? ' • PMID: ' . $pmid : '') . '</div>';
+                echo '</section>';
+            }
+        }
+
+        echo '</div>';
+        echo '<script>
+            (function(){
+                var form=document.getElementById("form");
+                if(form){ form.style.display="none"; }
+            })();
+        </script>';
+    }
+
+    /**
+     * Build card rows for a piped survey identifier.
+     */
+    private function getSurveyCards(int $projectId, string $identifier): array
+    {
+        $json = REDCap::getData([
+            'project_id' => $projectId,
+            'return_format' => 'json',
+            'fields' => [
+                'record_id',
+                'investigator_name',
+                'investigator_email',
+                'pmid',
+                'title',
+                'authors',
+                'journal',
+                'pub_year',
+            ],
+        ]);
+
+        $rows = json_decode((string) $json, true);
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $identifierLower = strtolower($identifier);
+        $recordIds = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $recordId = trim((string) ($row['record_id'] ?? ''));
+            $investigatorEmail = strtolower(trim((string) ($row['investigator_email'] ?? '')));
+            $investigatorName = strtolower(trim((string) ($row['investigator_name'] ?? '')));
+            if ($recordId === '' ) {
+                continue;
+            }
+
+            if ($recordId === $identifier || $investigatorEmail === $identifierLower || $investigatorName === $identifierLower) {
+                $recordIds[$recordId] = true;
+            }
+        }
+
+        $cards = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $recordId = trim((string) ($row['record_id'] ?? ''));
+            if (!isset($recordIds[$recordId])) {
+                continue;
+            }
+
+            $pmid = trim((string) ($row['pmid'] ?? ''));
+            $title = trim((string) ($row['title'] ?? ''));
+            if ($pmid === '' && $title === '') {
+                continue;
+            }
+
+            $cards[] = [
+                'pmid' => $pmid,
+                'title' => $title,
+                'authors' => trim((string) ($row['authors'] ?? '')),
+                'journal' => trim((string) ($row['journal'] ?? '')),
+                'pub_year' => trim((string) ($row['pub_year'] ?? '')),
+            ];
+        }
+
+        return $cards;
     }
 
     /**
