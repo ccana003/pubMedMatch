@@ -5,6 +5,7 @@ CorePubMatch is a REDCap External Module that performs **project-level PubMed pu
 ## Features
 
 - Manual, button-driven PubMed sync (no cron required, no custom JavaScript required).
+- Survey-facing publication adjudication UI rendered via AJAX cards (optional).
 - Pulls PMIDs from PubMed by investigator and publication date range.
 - Deduplicates PMIDs across investigators.
 - Skips PMIDs already present in REDCap.
@@ -62,7 +63,24 @@ After enabling the module for a project, configure these project settings:
      - `Prepared P; saved X.`
      - `Fetch issue (efetch_http|efetch_xml_parse): ...`
      - `Save errors: ...`
-   - `Error: ...` (if an issue occurs)
+  - `Error: ...` (if an issue occurs)
+
+## Survey Match Card UI (Optional)
+
+You can present publication matches as visual “bubbles/cards” on a REDCap survey by piping an identifier into the survey URL:
+
+```
+.../surveys/?s=XXXX&core_pubmatch_identifier=<record_id_or_email_or_name>
+```
+
+When `core_pubmatch_identifier` is present:
+
+1. CorePubMatch hides the native survey form.
+2. It loads matched publication instances over AJAX.
+3. Each match is rendered as a separate card with `Yes / No / Decide later`.
+4. Each selection saves instantly to the repeating publication row `status` field.
+
+This expects publication rows to be in the repeating instrument that contains `pmid` and `status`.
 
 ## Example Query Behavior
 
