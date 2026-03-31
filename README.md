@@ -107,6 +107,7 @@ Per-card save now writes:
 - `level_of_support`
 - `pi_review_date`
 - `status` = `2` (Ready for Core Review)
+- `publications_complete` = `2` (form complete)
 
 Only publications with unanswered `is_mine` are displayed in the survey card UI.
 

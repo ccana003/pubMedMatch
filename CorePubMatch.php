@@ -1409,6 +1409,7 @@ HTML;
             'level_of_support' => (string) ($values['level_of_support'] ?? ''),
             'pi_review_date' => (string) ($values['pi_review_date'] ?? date('Y-m-d')),
             'status' => '2',
+            'publications_complete' => '2',
         ]];
 
         $result = REDCap::saveData($projectId, 'json', json_encode($payload));

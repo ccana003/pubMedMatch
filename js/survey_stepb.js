@@ -188,6 +188,9 @@
             }
             if (!payload) throw lastErr || new Error('Save failed.');
             status.textContent = 'Saved';
+            setTimeout(function () {
+                window.location.reload();
+            }, 250);
         } catch (e) {
             status.textContent = 'Save failed: ' + e.message;
         }
