@@ -8,7 +8,7 @@
 
     function injectStyles() {
         var style = document.createElement('style');
-        style.textContent = '#core-pubmatch-survey-root .cpm-wrap{max-width:980px;margin:12px auto;padding:12px;background:#fff;border:1px solid #ddd;border-radius:6px}#core-pubmatch-survey-root .cpm-card{border:1px solid #d6d6d6;background:#fafafa;border-radius:6px;padding:12px;margin:10px 0}#core-pubmatch-survey-root .cpm-title{font-size:18px;font-weight:600;margin:0 0 6px}#core-pubmatch-survey-root .cpm-sub{font-size:13px;color:#555}#core-pubmatch-survey-root .cpm-empty{padding:10px;border:1px solid #ffd591;background:#fff7e6;border-radius:6px}#core-pubmatch-survey-root .cpm-investigator{margin-top:10px}#core-pubmatch-survey-root .cpm-review{margin-top:10px}#core-pubmatch-survey-root .cpm-review-row{margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}';
+        style.textContent = '#core-pubmatch-survey-root .cpm-wrap{max-width:980px;margin:12px auto;padding:12px;background:#fff;border:1px solid #ddd;border-radius:6px}#core-pubmatch-survey-root .cpm-card{border:1px solid #d6d6d6;background:#fafafa;border-radius:6px;padding:12px;margin:10px 0}#core-pubmatch-survey-root .cpm-title{font-size:18px;font-weight:600;margin:0 0 6px}#core-pubmatch-survey-root .cpm-sub{font-size:13px;color:#555}#core-pubmatch-survey-root .cpm-empty{padding:10px;border:1px solid #ffd591;background:#fff7e6;border-radius:6px}#core-pubmatch-survey-root .cpm-investigator{margin-top:10px}#core-pubmatch-survey-root .cpm-investigator-name{font-weight:700;color:#005eb8}#core-pubmatch-survey-root .cpm-review{margin-top:10px}#core-pubmatch-survey-root .cpm-review-row{margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}';
         document.head.appendChild(style);
     }
 
@@ -57,7 +57,7 @@
             if (m.pub_year) line += (line ? ' (' + m.pub_year + ')' : m.pub_year);
             if (m.pmid) line += (line ? ' • PMID: ' + m.pmid : 'PMID: ' + m.pmid);
             card.querySelectorAll('.cpm-sub')[2].textContent = line;
-            card.querySelector('.cpm-investigator').innerHTML = '<strong>Matched investigator:</strong> ' + escapeHtml(m.matched_investigator || '');
+            card.querySelector('.cpm-investigator').innerHTML = '<strong>Matched investigator:</strong> <span class="cpm-investigator-name">' + escapeHtml(m.matched_investigator || '') + '</span>';
 
             var review = card.querySelector('.cpm-review');
             review.innerHTML = [
